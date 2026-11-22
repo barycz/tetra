@@ -1,8 +1,13 @@
 #pragma once
 
+#include "config.hpp"
+#include "decoration.hpp"
+#include "file_watcher.hpp"
 #include "listener.hpp"
+#include "theme.hpp"
 #include "wlr.hpp"
 
+#include <chrono>
 #include <expected>
 #include <memory>
 #include <optional>
@@ -12,15 +17,19 @@
 namespace tetra {
 
 class Keyboard;
+class LayerSurface;
 class Output;
-class Toplevel;
+class View;
 
 struct Options {
     std::optional<std::string> startup_command;
+    std::optional<std::string> config_path; // overrides ~/.config/tetra/config.json
 };
 
 // Owns the Wayland display, the wlroots objects and every compositor-side
-// object (outputs, keyboards, toplevels). One instance per process.
+// object. One instance per process. Implementation is split across
+// server.cpp (setup, config, processes), wm.cpp (windows, focus, layers) and
+// input.cpp (pointer, keyboard bindings, interactive move/resize).
 class Server {
 public:
     static std::expected<std::unique_ptr<Server>, std::string> create(Options options);
@@ -31,30 +40,51 @@ public:
     Server(Server&&) = delete;
     Server& operator=(Server&&) = delete;
 
-    // Opens the socket, starts the backend, launches the startup command and
-    // runs the event loop until terminate().
+    // Opens the socket, starts the backend, the shell and autostart entries,
+    // then runs the event loop until terminate().
     std::expected<void, std::string> run();
     void terminate();
-    void spawn(const std::string& command);
+    pid_t spawn(const std::string& command);
 
-    // Window management, called by Toplevel / Keyboard.
-    void focus(Toplevel* toplevel);
-    void focus_next();
-    void begin_interactive_move(Toplevel& toplevel);
-    void begin_interactive_resize(Toplevel& toplevel, uint32_t edges);
-    void handle_toplevel_mapped(Toplevel& toplevel);
-    void handle_toplevel_unmapped(Toplevel& toplevel);
-    bool handle_keybinding(uint32_t modifiers, xkb_keysym_t sym);
+    [[nodiscard]] const config::Config& config() const noexcept { return config_; }
+    [[nodiscard]] const theme::Palette& palette() const noexcept { return palette_; }
 
-    // Ownership: called from the objects' own destroy handlers.
+    // --- outputs & layers (wm.cpp) -------------------------------------------
+    [[nodiscard]] Output* find_output(wlr_output* wlr_output) const;
+    [[nodiscard]] wlr_box usable_area_at_cursor() const;
+    [[nodiscard]] wlr_scene_tree* layer_tree(zwlr_layer_shell_v1_layer layer) const;
+    void handle_usable_area_changed(Output& output);
+    void handle_layer_mapped(LayerSurface& surface);
+    void handle_layer_unmapped(LayerSurface& surface);
+    void handle_layer_changed(LayerSurface& surface);
+    void handle_layer_destroyed(LayerSurface& surface);
     void destroy_output(Output& output);
-    void destroy_keyboard(Keyboard& keyboard);
-    void destroy_toplevel(Toplevel& toplevel);
 
-    // Scene tree layers, bottom to top.
+    // --- windows & focus (wm.cpp) --------------------------------------------
+    void focus_view(View* view);
+    void focus_next_view();
+    void set_keyboard_focus(wlr_surface* surface);
+    void restore_keyboard_focus();
+    void handle_view_mapped(View& view);
+    void handle_view_unmapped(View& view);
+    void handle_view_minimized(View& view);
+    void handle_view_title_changed(View& view);
+    void destroy_view(View& view);
+
+    // --- input (input.cpp) -----------------------------------------------------
+    void begin_interactive_move(View& view);
+    void begin_interactive_resize(View& view, uint32_t edges);
+    bool handle_keybinding(uint32_t modifiers, xkb_keysym_t sym);
+    void destroy_keyboard(Keyboard& keyboard);
+
+    // Scene layers, bottom to top.
     struct Layers {
         wlr_scene_tree* background = nullptr;
+        wlr_scene_tree* bottom = nullptr;
         wlr_scene_tree* windows = nullptr;
+        wlr_scene_tree* top = nullptr;
+        wlr_scene_tree* fullscreen = nullptr;
+        wlr_scene_tree* unmanaged = nullptr; // X11 menus and tooltips
         wlr_scene_tree* overlay = nullptr;
     };
 
@@ -63,11 +93,14 @@ public:
     wlr_session* session = nullptr; // null for headless/nested backends
     wlr_renderer* renderer = nullptr;
     wlr_allocator* allocator = nullptr;
+    wlr_compositor* compositor = nullptr;
     wlr_output_layout* output_layout = nullptr;
     wlr_scene* scene = nullptr;
     wlr_scene_output_layout* scene_layout = nullptr;
     Layers layers;
     wlr_xdg_shell* xdg_shell = nullptr;
+    wlr_layer_shell_v1* layer_shell = nullptr;
+    wlr_xwayland* xwayland = nullptr;
     wlr_cursor* cursor = nullptr;
     wlr_xcursor_manager* cursor_manager = nullptr;
     wlr_seat* seat = nullptr;
@@ -75,44 +108,97 @@ public:
 private:
     explicit Server(Options options);
     std::expected<void, std::string> init();
+    void init_protocols();
     void init_input();
+    void init_xwayland();
 
+    // config (server.cpp)
+    void load_config();
+    void reload_config();
+    void apply_config(const config::Config& previous);
+    void watch_config();
+
+    // processes (server.cpp)
+    pid_t spawn_argv(const std::vector<std::string>& argv);
+    void start_shell();
+    void reap_children();
+
+    // events
     void handle_new_output(wlr_output* wlr_output);
     void handle_new_input(wlr_input_device* device);
-    void handle_new_toplevel(wlr_xdg_toplevel* xdg_toplevel);
-    void handle_new_popup(wlr_xdg_popup* xdg_popup);
+    void handle_new_layer_surface(wlr_layer_surface_v1* layer_surface);
+    void handle_new_popup(wlr_xdg_popup* popup);
+    void update_seat_capabilities();
+    void update_layer_focus();
+
+    // pointer (input.cpp)
+    struct Hit {
+        wlr_surface* surface = nullptr;
+        double sx = 0;
+        double sy = 0;
+        View* view = nullptr;
+        LayerSurface* layer = nullptr;
+        Decoration::Hit decoration;
+    };
+    Hit hit_test(double lx, double ly);
+    void handle_cursor_motion(uint32_t time_msec);
     void handle_cursor_button(const wlr_pointer_button_event& event);
-    void process_cursor_motion(uint32_t time_msec);
+    void handle_decoration_press(View& view, const Decoration::Hit& hit, uint32_t time_msec);
+    void set_hovered_decoration(View* view, Decoration::Part part);
+    void set_cursor_image(const char* name);
     void process_move();
     void process_resize();
-    void update_seat_capabilities();
+    void end_grab();
 
-    // Topmost toplevel under layout coordinates (lx, ly), plus the surface and
-    // surface-local coordinates hit. Returns nullptr over the desktop.
-    Toplevel* toplevel_at(double lx, double ly, wlr_surface*& surface, double& sx, double& sy);
-
-    enum class CursorMode { Passthrough, Move, Resize };
+    enum class GrabMode { None, PendingMove, Move, Resize, Button };
     struct Grab {
-        CursorMode mode = CursorMode::Passthrough;
-        Toplevel* toplevel = nullptr;
-        double x = 0;
+        GrabMode mode = GrabMode::None;
+        View* view = nullptr;
+        double x = 0; // cursor offset (move/resize) or press position (pending move)
         double y = 0;
         wlr_box box{};
         uint32_t edges = 0;
+        Decoration::Part button = Decoration::Part::None;
     };
 
     Options options_;
+    config::Config config_;
+    theme::Palette palette_;
+    std::optional<FileWatcher> config_watcher_;
+    wl_event_source* config_source_ = nullptr;
+
     std::vector<std::unique_ptr<Output>> outputs_;
     std::vector<std::unique_ptr<Keyboard>> keyboards_;
-    std::vector<std::unique_ptr<Toplevel>> toplevels_;
-    std::vector<Toplevel*> focus_order_; // mapped toplevels, most recent first
+    std::vector<std::unique_ptr<View>> views_;
+    std::vector<View*> focus_order_; // mapped views, most recently focused first
+    View* focused_view_ = nullptr;
+    LayerSurface* focused_layer_ = nullptr;   // layer surface given focus on click
+    LayerSurface* exclusive_layer_ = nullptr; // layer surface demanding all keyboard input
+    View* hovered_view_ = nullptr;            // view whose decoration is hovered
+    const char* cursor_image_ = nullptr;      // compositor-set cursor, null if client-set
     Grab grab_;
+    View* last_title_click_view_ = nullptr;
+    uint32_t last_title_click_time_ = 0;
+    bool consumed_press_ = false; // last press went to a decoration, not a client
+
+    pid_t shell_pid_ = -1;
+    std::chrono::steady_clock::time_point shell_started_;
+    int shell_fast_exits_ = 0;
+    wl_event_source* shell_timer_ = nullptr;
+    bool terminating_ = false;
     std::vector<wl_event_source*> signal_sources_;
 
     Listener new_output_;
     Listener new_input_;
     Listener new_toplevel_;
     Listener new_popup_;
+    Listener new_layer_surface_;
+    Listener new_xdg_decoration_;
+    Listener new_virtual_pointer_;
+    Listener new_virtual_keyboard_;
+    Listener request_cursor_shape_;
+    Listener xwayland_ready_;
+    Listener xwayland_new_surface_;
     Listener cursor_motion_;
     Listener cursor_motion_absolute_;
     Listener cursor_button_;

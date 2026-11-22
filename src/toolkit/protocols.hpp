@@ -1,0 +1,24 @@
+#pragma once
+
+// Generated Wayland client protocol headers, safe for C++.
+// wlr-layer-shell names a parameter `namespace`; rename it while parsing.
+
+#include <wayland-client.h>
+
+// NOLINTBEGIN
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
+#define namespace namespace_
+
+#include "cursor-shape-v1-protocol.h"
+#include "wlr-layer-shell-unstable-v1-protocol.h"
+#include "xdg-decoration-unstable-v1-protocol.h"
+#include "xdg-shell-protocol.h"
+
+#undef namespace
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+// NOLINTEND

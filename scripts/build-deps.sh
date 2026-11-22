@@ -31,10 +31,33 @@ export PATH="$prefix/bin:$PATH"
 # libwlroots never picks up the older system libdrm.
 export LDFLAGS="-Wl,-rpath,$prefix/lib ${LDFLAGS:-}"
 
+# Dependencies with patches in patches/<name>/ are built from a patched
+# export in .deps/src/<name>; the submodule checkout itself stays pristine.
+source_dir() {
+    local name="$1"
+    local patches=("$root/patches/$name"/*.patch)
+    if [[ ! -e "${patches[0]}" ]]; then
+        echo "$root/third_party/$name"
+        return
+    fi
+    local dest="$root/.deps/src/$name"
+    rm -rf "$dest" && mkdir -p "$dest"
+    git -C "$root/third_party/$name" archive HEAD | tar -x -C "$dest"
+    for patch in "${patches[@]}"; do
+        patch -d "$dest" -p1 --quiet --forward <"$patch" >&2
+    done
+    echo "$dest"
+}
+
 build() {
     local name="$1"; shift
     echo "==> $name"
-    meson setup "$builddir/$name" "$root/third_party/$name" \
+    local src
+    src="$(source_dir "$name")"
+    if [[ "$src" != "$root/third_party/$name" ]]; then
+        rm -rf "${builddir:?}/$name" # source tree was re-exported
+    fi
+    meson setup "$builddir/$name" "$src" \
         --prefix "$prefix" --libdir lib --buildtype "$buildtype" \
         --wrap-mode nofallback --reconfigure "$@" >/dev/null
     meson compile -C "$builddir/$name" >/dev/null

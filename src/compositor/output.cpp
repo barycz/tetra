@@ -1,43 +1,201 @@
 #include "output.hpp"
 
+#include "layer_surface.hpp"
+#include "log.hpp"
 #include "server.hpp"
 
+#include <algorithm>
+#include <array>
+#include <charconv>
+#include <cmath>
+#include <cstdlib>
 #include <ctime>
+#include <string_view>
 
 namespace tetra {
 
 namespace {
 
-// Placeholder desktop colour until theming lands.
-constexpr float kBackgroundColor[4] = {0.106F, 0.114F, 0.133F, 1.0F};
+// Output size for backends without modes (headless, nested), e.g. "1920x1080".
+std::optional<config::OutputMode> env_output_size() {
+    const char* env = std::getenv("TETRA_OUTPUT_SIZE"); // NOLINT(concurrency-mt-unsafe)
+    if (env == nullptr) {
+        return std::nullopt;
+    }
+    const std::string_view text{env};
+    const auto sep = text.find('x');
+    config::OutputMode mode;
+    if (sep == std::string_view::npos ||
+        std::from_chars(text.data(), text.data() + sep, mode.width).ec != std::errc{} ||
+        std::from_chars(text.data() + sep + 1, text.data() + text.size(), mode.height).ec !=
+            std::errc{} ||
+        mode.width <= 0 || mode.height <= 0) {
+        log::error("ignoring malformed TETRA_OUTPUT_SIZE='{}'", text);
+        return std::nullopt;
+    }
+    return mode;
+}
 
 } // namespace
 
 Output::Output(Server& server, wlr_output* wlr_output) : server_(server), output_(wlr_output) {
-    frame_.connect(output_->events.frame, [this] { render_frame(); });
+    wlr_output_init_render(output_, server_.allocator, server_.renderer);
 
+    frame_.connect(output_->events.frame, [this] { render_frame(); });
     request_state_.connect<wlr_output_event_request_state>(
         output_->events.request_state, [this](auto* event) {
             // Nested backends ask for a new mode when their window is resized.
             wlr_output_commit_state(output_, event->state);
             update_background();
+            arrange_layers();
         });
-
     destroy_.connect(output_->events.destroy, [this] { server_.destroy_output(*this); });
 
-    // Left-to-right auto arrangement until output configuration lands.
-    wlr_output_layout_output* layout_output = wlr_output_layout_add_auto(server_.output_layout, output_);
-    wlr_scene_output* scene_output = wlr_scene_output_create(server_.scene, output_);
-    wlr_scene_output_layout_add_output(server_.scene_layout, layout_output, scene_output);
-
-    background_ = wlr_scene_rect_create(server_.layers.background, 0, 0, kBackgroundColor);
-    update_background();
+    background_ = wlr_scene_rect_create(server_.layers.background, 0, 0,
+                                        server_.config().desktop.background.premultiplied().data());
+    wlr_scene_node_lower_to_bottom(&background_->node);
+    apply_config(server_.config().output(output_->name));
 }
 
 Output::~Output() {
-    if (background_ != nullptr) {
-        wlr_scene_node_destroy(&background_->node);
+    // Closing a layer surface removes it from layer_surfaces_ via its destroy handler.
+    while (!layer_surfaces_.empty()) {
+        wlr_layer_surface_v1_destroy(layer_surfaces_.back()->wlr());
     }
+    wlr_scene_node_destroy(&background_->node);
+}
+
+wlr_box Output::box() const {
+    wlr_box box{};
+    wlr_output_layout_get_box(server_.output_layout, output_, &box);
+    return box;
+}
+
+bool Output::set_mode(wlr_output_state& state, const config::OutputMode& wanted) {
+    if (wl_list_empty(&output_->modes)) {
+        // Headless/nested: any size goes.
+        wlr_output_state_set_custom_mode(&state, wanted.width, wanted.height,
+                                         static_cast<int32_t>(std::lround(wanted.refresh * 1000)));
+        return true;
+    }
+    wlr_output_mode* best = nullptr;
+    for (wl_list* link = output_->modes.next; link != &output_->modes; link = link->next) {
+        auto* mode = container_of<wlr_output_mode>(link, offsetof(wlr_output_mode, link));
+        if (mode->width != wanted.width || mode->height != wanted.height) {
+            continue;
+        }
+        if (wanted.refresh > 0) {
+            const double diff = std::abs((mode->refresh / 1000.0) - wanted.refresh);
+            if (best == nullptr || diff < std::abs((best->refresh / 1000.0) - wanted.refresh)) {
+                best = mode;
+            }
+        } else if (best == nullptr || mode->refresh > best->refresh) {
+            best = mode;
+        }
+    }
+    if (best == nullptr) {
+        log::error("output {}: no mode {}x{}; keeping the default", output_->name, wanted.width,
+                   wanted.height);
+        return false;
+    }
+    wlr_output_state_set_mode(&state, best);
+    return true;
+}
+
+void Output::apply_config(const config::Output* config) {
+    const bool enabled = config == nullptr || config->enabled;
+
+    wlr_output_state state;
+    wlr_output_state_init(&state);
+    wlr_output_state_set_enabled(&state, enabled);
+    if (enabled) {
+        bool mode_set = config != nullptr && config->mode && set_mode(state, *config->mode);
+        if (!mode_set && output_->current_mode == nullptr) {
+            if (wlr_output_mode* preferred = wlr_output_preferred_mode(output_)) {
+                wlr_output_state_set_mode(&state, preferred);
+            } else if (auto size = env_output_size()) {
+                set_mode(state, *size);
+            }
+        }
+        wlr_output_state_set_scale(&state, config != nullptr ? static_cast<float>(config->scale) : 1.0F);
+    }
+    if (!wlr_output_commit_state(output_, &state)) {
+        log::error("output {}: failed to apply configuration", output_->name);
+    }
+    wlr_output_state_finish(&state);
+
+    if (enabled) {
+        if (config != nullptr && config->position) {
+            wlr_output_layout_add(server_.output_layout, output_, config->position->first,
+                                  config->position->second);
+        } else if (wlr_output_layout_get(server_.output_layout, output_) == nullptr) {
+            wlr_output_layout_add_auto(server_.output_layout, output_);
+        }
+        ensure_scene_output();
+    } else {
+        wlr_output_layout_remove(server_.output_layout, output_);
+    }
+    log::info("output {}: {} {}x{} scale {:.2f}", output_->name, enabled ? "on" : "off",
+              output_->width, output_->height, output_->scale);
+
+    update_background();
+    arrange_layers();
+}
+
+void Output::ensure_scene_output() {
+    if (wlr_scene_get_scene_output(server_.scene, output_) != nullptr) {
+        return;
+    }
+    wlr_scene_output* scene_output = wlr_scene_output_create(server_.scene, output_);
+    wlr_output_layout_output* layout_output = wlr_output_layout_get(server_.output_layout, output_);
+    wlr_scene_output_layout_add_output(server_.scene_layout, layout_output, scene_output);
+}
+
+void Output::update_background() {
+    const wlr_box area = box();
+    wlr_scene_node_set_enabled(&background_->node, !wlr_box_empty(&area));
+    wlr_scene_node_set_position(&background_->node, area.x, area.y);
+    wlr_scene_rect_set_size(background_, area.width, area.height);
+    wlr_scene_rect_set_color(background_,
+                             server_.config().desktop.background.premultiplied().data());
+}
+
+void Output::arrange_layers() {
+    const wlr_box full = box();
+    wlr_box usable = full;
+    if (!wlr_box_empty(&full)) {
+        // Surfaces with an exclusive zone claim their edge first, top layer
+        // first; then everything else is placed in what remains.
+        constexpr std::array<zwlr_layer_shell_v1_layer, 4> order = {
+            ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, ZWLR_LAYER_SHELL_V1_LAYER_TOP,
+            ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM, ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND};
+        for (const bool exclusive : {true, false}) {
+            for (const auto layer : order) {
+                for (const auto& surface : layer_surfaces_) {
+                    wlr_layer_surface_v1* ls = surface->wlr();
+                    if (!ls->initialized || ls->current.layer != layer ||
+                        (ls->current.exclusive_zone > 0) != exclusive) {
+                        continue;
+                    }
+                    wlr_scene_layer_surface_v1_configure(surface->scene(), &full, &usable);
+                }
+            }
+        }
+    }
+    if (!wlr_box_equal(&usable, &usable_area_)) {
+        usable_area_ = usable;
+        server_.handle_usable_area_changed(*this);
+    }
+}
+
+void Output::add_layer_surface(wlr_layer_surface_v1* layer_surface) {
+    layer_surfaces_.push_back(std::make_unique<LayerSurface>(server_, *this, layer_surface));
+}
+
+void Output::remove_layer_surface(LayerSurface& surface) {
+    server_.handle_layer_destroyed(surface);
+    std::erase_if(layer_surfaces_, [&](const auto& ptr) { return ptr.get() == &surface; });
+    arrange_layers();
 }
 
 void Output::render_frame() {
@@ -50,13 +208,6 @@ void Output::render_frame() {
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);
     wlr_scene_output_send_frame_done(scene_output, &now);
-}
-
-void Output::update_background() {
-    wlr_box box{};
-    wlr_output_layout_get_box(server_.output_layout, output_, &box);
-    wlr_scene_node_set_position(&background_->node, box.x, box.y);
-    wlr_scene_rect_set_size(background_, box.width, box.height);
 }
 
 } // namespace tetra

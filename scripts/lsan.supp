@@ -1,3 +1,5 @@
 # LeakSanitizer suppressions for leaks outside tetra's control.
 # Mesa's gallium driver keeps a small per-process allocation alive at exit.
 leak:libgallium
+# fontconfig's caches (held by pango in the compositor) live until exit.
+leak:libfontconfig

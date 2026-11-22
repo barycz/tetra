@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config.hpp"
 #include "listener.hpp"
 #include "wlr.hpp"
 
@@ -7,8 +8,8 @@ namespace tetra {
 
 class Server;
 
-// A physical keyboard. All keyboards feed the single seat; compositor
-// keybindings are intercepted before keys reach clients.
+// A keyboard. All keyboards feed the single seat; compositor keybindings are
+// intercepted before keys reach clients.
 class Keyboard {
 public:
     Keyboard(Server& server, wlr_input_device* device);
@@ -19,11 +20,15 @@ public:
     Keyboard& operator=(Keyboard&&) = delete;
     ~Keyboard() = default;
 
+    // Keymap and repeat rate. Virtual keyboards keep their client's keymap.
+    void apply_config(const config::Keyboard& config);
+
 private:
     void handle_key(const wlr_keyboard_key_event& event);
 
     Server& server_;
     wlr_keyboard* keyboard_;
+    bool is_virtual_;
 
     Listener modifiers_;
     Listener key_;

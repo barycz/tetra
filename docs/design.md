@@ -97,10 +97,16 @@ tetra's file dialog. Xwayland is supported for legacy X11 apps.
 
 ## Configuration
 
-- JSON with comments, under `~/.config/tetra/`, one schema, validated on load.
-- Live reload (inotify): compositor, shell and apps watch the files they use.
-- The Settings app is an editor for these files — never a second source of truth.
-- Library: nlohmann/json or glaze (typed structs); to be decided when libcore lands.
+- One file, `~/.config/tetra/config.json`: JSON with comments, validated on
+  load into typed structs (`src/core/config.hpp`, nlohmann/json). Reference:
+  [config.md](config.md).
+- Live reload (inotify on the directory, so atomic saves work): the compositor,
+  shell and apps each watch the file. A file with errors is rejected and the
+  previous configuration stays.
+- Colours are never configured one by one: `theme` (dark/light, accent, font)
+  is turned into a `theme::Palette` in one place (`src/core/theme.cpp`), used
+  by both the compositor's decorations and the ImGui style.
+- The Settings app is an editor for this file — never a second source of truth.
 
 ## Scope
 
@@ -146,13 +152,58 @@ Signal handling goes through `tetra::Listener` (RAII `wl_listener` with a C++
 callback). wlroots asserts that no listeners remain on objects it destroys, so
 teardown order in `Server::~Server` is deliberate.
 
+### Local patches
+
+Patches in `patches/<dep>/` are applied by `build-deps.sh` to an export of the
+submodule in `.deps/src/`; the submodule checkout itself stays pristine.
+
+- `wlroots/0001-skip-dmabuf-import-check-on-vmwgfx`: wlroots validates every
+  client dmabuf by importing it into the DRM device and closing the handle;
+  vmwgfx (VMware/VirtualBox) rejects the close, so *every* GPU client —
+  Xwayland, Mesa EGL apps, our own toolkit — would be refused. The check is
+  skipped on that driver only. Real GPUs are unaffected.
+
+## Compositor structure (phase 1)
+
+- `View` (`XdgView`, `XwaylandView`) — one managed window. Content box in
+  layout coordinates = the client's window geometry; decorations hang around it.
+- `Decoration` — server-side title bar rendered with cairo + pango into a
+  `wlr_buffer` (`CairoBuffer`), plus border strips and an invisible resize
+  margin, all plain scene nodes. Hit-testing returns title / buttons / edges.
+  Clients that speak xdg-decoration always get server-side decorations;
+  clients without it (GTK4/libadwaita) draw their own.
+- `LayerSurface` + `Output::arrange_layers()` — layer-shell placement and the
+  usable area (what is left after exclusive zones such as the bar).
+  Maximized windows fill the usable area, fullscreen windows the output.
+- Scene layers, bottom to top: background, bottom, windows, top, fullscreen,
+  unmanaged (X11 menus), overlay.
+- Every object that can be hit carries a `SceneDescriptor` in `node.data`;
+  `Server::hit_test()` walks up from the node under the cursor.
+- The compositor starts the shell (`"shell"` in the config) and restarts it
+  when it exits, backing off and giving up after 5 quick exits.
+
+## Toolkit structure (phase 1)
+
+- `ui::App` — Wayland connection, globals, seat (pointer, keyboard with xkb and
+  client-side key repeat), outputs, timers, fd watchers, one EGL context
+  (GLES 3), configuration with live reload.
+- `ui::Window` — wl_surface + EGL surface + its own ImGui context. Renders
+  only when input arrives, on resize or `request_redraw()`, and at most once
+  per `wl_surface.frame` callback, so idle and hidden windows cost nothing.
+  `LayerWindow` (bars, panels) and `ToplevelWindow` (apps, asks for
+  server-side decorations) set the role.
+- Fonts: fontconfig resolves `theme.font` to a file; ImGui renders it with
+  FreeType. Cursor shapes go through `cursor-shape-v1`.
+
 ## Development workflow
 
 - VirtualBox VM, Debian 13, VMSVGA + 3D (Mesa SVGA3D, GLES 3.0).
 - **Headless loop:** `scripts/run-headless.sh` runs tetra on wlroots' headless
-  backend with a private runtime dir, launches clients, and screenshots with
-  `grim` — no display needed, works over SSH, and is the basis for screenshot
-  regression tests in CI.
+  backend with a private runtime dir and an empty config, launches clients, and
+  screenshots with `grim` — no display needed, works over SSH, and is the basis
+  for screenshot regression tests in CI. Scenarios live in `tests/headless/`;
+  input is injected with `wlrctl` through the virtual pointer/keyboard
+  protocols (the pointer starts at 100,100).
 - **Real session:** from a spare TTY, or later through a `wayland-sessions`
   entry in GDM. GDM stays until tetra has its own greetd greeter.
 - Presets: `debug` (GCC, -Werror), `clang`, `asan` (ASan + UBSan), `release`.
@@ -163,6 +214,7 @@ teardown order in `Server::~Server` is deliberate.
    headless screenshot loop. *(done)*
 1. **Compositor + toolkit MVP** — layer-shell, server-side decorations,
    JSON config, Xwayland; libtoolkit with event-driven ImGui; a bar with a clock.
+   *(done; not yet tried on a real seat)*
 2. **Task bar** — private protocol, F-key slots, launcher, basic tray.
 3. **Shell services** — notifications, OSD, lock/idle, polkit agent, screenshots, SNI tray.
 4. **Settings app.**
@@ -171,7 +223,17 @@ teardown order in `Server::~Server` is deliberate.
 
 ## Open questions
 
-- Config library: nlohmann/json vs glaze.
-- Decoration rendering: ImGui inside the compositor's GL context vs plain scene
-  rects + text textures.
 - Overflow beyond 12 apps: is the single overflow stack enough in practice?
+- Virtual input (`wlr-virtual-pointer`, `virtual-keyboard`) is open to every
+  client so tests can drive the UI. Restrict it (config flag or trusted
+  clients only) before tetra is used for real.
+- Fractional scaling: the compositor offers `wp-fractional-scale-v1`, but the
+  toolkit only handles integer `preferred_buffer_scale` so far.
+- KDE `server-decoration` (some GTK3/Qt5 apps) is not implemented; those
+  apps draw their own decorations.
+
+## Decided
+
+- Config library: nlohmann/json (Debian-packaged, comments supported).
+- Decorations: cairo + pango into scene buffers, not ImGui in the compositor —
+  no GL state shared with wlroots' renderer, same palette and font as the shell.

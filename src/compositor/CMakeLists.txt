@@ -1,17 +1,34 @@
+pkg_check_modules(PANGOCAIRO REQUIRED IMPORTED_TARGET pangocairo cairo)
+
 add_executable(tetra
+    cairo_buffer.cpp
+    decoration.cpp
+    input.cpp
     keyboard.cpp
+    layer_surface.cpp
     main.cpp
     output.cpp
+    popup.cpp
     server.cpp
-    toplevel.cpp
+    view.cpp
+    wm.cpp
+    xdg_view.cpp
+    xwayland_view.cpp
+)
+
+# wlr_layer_shell_v1.h includes the generated server header.
+tetra_wayland_protocols(tetra SERVER
+    "${WLR_PROTOCOLS_DIR}/wlr-layer-shell-unstable-v1.xml"
 )
 
 target_compile_definitions(tetra PRIVATE WLR_USE_UNSTABLE)
 target_link_libraries(tetra PRIVATE
+    tetra_core
     tetra_warnings
     PkgConfig::WLROOTS
     PkgConfig::WAYLAND_SERVER
     PkgConfig::XKBCOMMON
+    PkgConfig::PANGOCAIRO
 )
 
 install(TARGETS tetra)

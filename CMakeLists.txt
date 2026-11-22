@@ -33,14 +33,20 @@ pkg_check_modules(WAYLAND_SERVER REQUIRED IMPORTED_TARGET wayland-server)
 pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 
 # --- shared compile settings ---------------------------------------------------
+# Our C++ only; generated protocol C code and vendored libraries are exempt.
 add_library(tetra_warnings INTERFACE)
 target_compile_options(tetra_warnings INTERFACE
-    -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Wold-style-cast
-    -Woverloaded-virtual -Wnull-dereference -Wimplicit-fallthrough)
+    $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor
+    -Wold-style-cast -Woverloaded-virtual -Wnull-dereference -Wimplicit-fallthrough>)
 
 option(TETRA_WERROR "Treat warnings as errors" OFF)
 if(TETRA_WERROR)
-    target_compile_options(tetra_warnings INTERFACE -Werror)
+    target_compile_options(tetra_warnings INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-Werror>)
 endif()
 
+include(cmake/WaylandProtocols.cmake)
+
+add_subdirectory(src/core)
 add_subdirectory(src/compositor)
+add_subdirectory(src/toolkit)
+add_subdirectory(src/shell)

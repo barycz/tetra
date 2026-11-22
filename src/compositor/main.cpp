@@ -10,9 +10,10 @@
 namespace {
 
 void print_usage(std::FILE* stream) {
-    std::println(stream, "Usage: tetra [-s COMMAND] [-d]\n"
+    std::println(stream, "Usage: tetra [-s COMMAND] [-c FILE] [-d]\n"
                          "\n"
                          "  -s, --startup COMMAND  run COMMAND (via /bin/sh) once the compositor is up\n"
+                         "  -c, --config FILE      configuration file (default ~/.config/tetra/config.json)\n"
                          "  -d, --debug            verbose logging\n"
                          "  -h, --help             show this help");
 }
@@ -26,12 +27,21 @@ int main(int argc, char* argv[]) {
 
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string_view arg = args[i];
+        auto value = [&]() -> const char* { return ++i < args.size() ? args[i] : nullptr; };
         if (arg == "-s" || arg == "--startup") {
-            if (++i == args.size()) {
+            const char* v = value();
+            if (v == nullptr) {
                 print_usage(stderr);
                 return 2;
             }
-            options.startup_command = args[i];
+            options.startup_command = v;
+        } else if (arg == "-c" || arg == "--config") {
+            const char* v = value();
+            if (v == nullptr) {
+                print_usage(stderr);
+                return 2;
+            }
+            options.config_path = v;
         } else if (arg == "-d" || arg == "--debug") {
             verbosity = WLR_DEBUG;
         } else if (arg == "-h" || arg == "--help") {

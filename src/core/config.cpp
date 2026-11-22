@@ -1,0 +1,343 @@
+#include "config.hpp"
+
+#include <nlohmann/json.hpp>
+
+#include <charconv>
+#include <cstdlib>
+#include <format>
+#include <fstream>
+#include <initializer_list>
+#include <sstream>
+#include <stdexcept>
+
+namespace tetra::config {
+
+namespace {
+
+using json = nlohmann::json;
+
+// Thrown for type errors; the message carries the JSON path.
+struct ConfigError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
+std::optional<int> hex_digit(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return std::nullopt;
+}
+
+class Reader {
+public:
+    explicit Reader(std::vector<std::string>* warnings) : warnings_(warnings) {}
+
+    // Reports keys of `object` (at `path`) that are not in `known`.
+    void check_keys(const json& object, std::string_view path,
+                    std::initializer_list<std::string_view> known) {
+        if (warnings_ == nullptr) {
+            return;
+        }
+        for (const auto& [key, value] : object.items()) {
+            bool found = false;
+            for (std::string_view k : known) {
+                found = found || k == key;
+            }
+            if (!found) {
+                warnings_->push_back(std::format("unknown key '{}{}'", path, key));
+            }
+        }
+    }
+
+    static const json& expect_object(const json& value, std::string_view path) {
+        if (!value.is_object()) {
+            throw ConfigError(std::format("'{}' must be an object", path));
+        }
+        return value;
+    }
+
+    static void read(const json& object, std::string_view path, const char* key, bool& out) {
+        if (const auto* v = find(object, key)) {
+            if (!v->is_boolean()) {
+                throw ConfigError(std::format("'{}{}' must be true or false", path, key));
+            }
+            out = v->get<bool>();
+        }
+    }
+
+    static void read(const json& object, std::string_view path, const char* key, int& out) {
+        if (const auto* v = find(object, key)) {
+            if (!v->is_number_integer()) {
+                throw ConfigError(std::format("'{}{}' must be an integer", path, key));
+            }
+            out = v->get<int>();
+        }
+    }
+
+    static void read(const json& object, std::string_view path, const char* key, double& out) {
+        if (const auto* v = find(object, key)) {
+            if (!v->is_number()) {
+                throw ConfigError(std::format("'{}{}' must be a number", path, key));
+            }
+            out = v->get<double>();
+        }
+    }
+
+    static void read(const json& object, std::string_view path, const char* key,
+                     std::string& out) {
+        if (const auto* v = find(object, key)) {
+            if (!v->is_string()) {
+                throw ConfigError(std::format("'{}{}' must be a string", path, key));
+            }
+            out = v->get<std::string>();
+        }
+    }
+
+    static void read(const json& object, std::string_view path, const char* key, Color& out) {
+        std::string text;
+        read(object, path, key, text);
+        if (text.empty()) {
+            return;
+        }
+        auto color = Color::parse(text);
+        if (!color) {
+            throw ConfigError(
+                std::format("'{}{}' must be a colour like \"#rrggbb\", got \"{}\"", path, key, text));
+        }
+        out = *color;
+    }
+
+    static void read(const json& object, std::string_view path, const char* key,
+                     std::vector<std::string>& out) {
+        if (const auto* v = find(object, key)) {
+            if (!v->is_array()) {
+                throw ConfigError(std::format("'{}{}' must be an array of strings", path, key));
+            }
+            out.clear();
+            for (const auto& item : *v) {
+                if (!item.is_string()) {
+                    throw ConfigError(std::format("'{}{}' must be an array of strings", path, key));
+                }
+                out.push_back(item.get<std::string>());
+            }
+        }
+    }
+
+private:
+    static const json* find(const json& object, const char* key) {
+        auto it = object.find(key);
+        return it == object.end() || it->is_null() ? nullptr : &*it;
+    }
+
+    std::vector<std::string>* warnings_;
+};
+
+// "1920x1080" or "1920x1080@60".
+OutputMode parse_mode(std::string_view text, std::string_view path) {
+    OutputMode mode;
+    const auto x = text.find('x');
+    const auto at = text.find('@');
+    auto fail = [&] {
+        return ConfigError(
+            std::format("'{}' must look like \"1920x1080\" or \"1920x1080@60\", got \"{}\"", path,
+                        text));
+    };
+    if (x == std::string_view::npos) {
+        throw fail();
+    }
+    const auto end = at == std::string_view::npos ? text.size() : at;
+    const auto w = std::from_chars(text.data(), text.data() + x, mode.width);
+    const auto h = std::from_chars(text.data() + x + 1, text.data() + end, mode.height);
+    if (w.ec != std::errc{} || h.ec != std::errc{} || mode.width <= 0 || mode.height <= 0) {
+        throw fail();
+    }
+    if (at != std::string_view::npos) {
+        const auto r = std::from_chars(text.data() + at + 1, text.data() + text.size(), mode.refresh);
+        if (r.ec != std::errc{} || mode.refresh <= 0) {
+            throw fail();
+        }
+    }
+    return mode;
+}
+
+Config parse(const json& root, Reader& reader) {
+    Config config;
+    Reader::expect_object(root, "");
+    reader.check_keys(root, "",
+                      {"$schema", "keyboard", "outputs", "theme", "desktop", "windows", "shell",
+                       "autostart"});
+
+    if (auto it = root.find("keyboard"); it != root.end()) {
+        const auto& kb = Reader::expect_object(*it, "keyboard");
+        reader.check_keys(kb, "keyboard.",
+                          {"layout", "model", "variant", "options", "repeat_rate", "repeat_delay"});
+        Reader::read(kb, "keyboard.", "layout", config.keyboard.layout);
+        Reader::read(kb, "keyboard.", "model", config.keyboard.model);
+        Reader::read(kb, "keyboard.", "variant", config.keyboard.variant);
+        Reader::read(kb, "keyboard.", "options", config.keyboard.options);
+        Reader::read(kb, "keyboard.", "repeat_rate", config.keyboard.repeat_rate);
+        Reader::read(kb, "keyboard.", "repeat_delay", config.keyboard.repeat_delay);
+    }
+
+    if (auto it = root.find("outputs"); it != root.end()) {
+        if (!it->is_array()) {
+            throw ConfigError("'outputs' must be an array");
+        }
+        for (std::size_t i = 0; i < it->size(); ++i) {
+            const std::string path = std::format("outputs[{}].", i);
+            const auto& entry = Reader::expect_object((*it)[i], path);
+            reader.check_keys(entry, path, {"name", "enabled", "mode", "scale", "position"});
+            Output output;
+            Reader::read(entry, path, "name", output.name);
+            if (output.name.empty()) {
+                throw ConfigError(std::format("'{}name' is required", path));
+            }
+            Reader::read(entry, path, "enabled", output.enabled);
+            Reader::read(entry, path, "scale", output.scale);
+            if (output.scale < 0.5 || output.scale > 4) {
+                throw ConfigError(std::format("'{}scale' must be between 0.5 and 4", path));
+            }
+            std::string mode;
+            Reader::read(entry, path, "mode", mode);
+            if (!mode.empty()) {
+                output.mode = parse_mode(mode, path + "mode");
+            }
+            if (auto pos = entry.find("position"); pos != entry.end()) {
+                if (!pos->is_array() || pos->size() != 2 || !(*pos)[0].is_number_integer() ||
+                    !(*pos)[1].is_number_integer()) {
+                    throw ConfigError(std::format("'{}position' must be [x, y]", path));
+                }
+                output.position = std::pair{(*pos)[0].get<int>(), (*pos)[1].get<int>()};
+            }
+            config.outputs.push_back(std::move(output));
+        }
+    }
+
+    if (auto it = root.find("theme"); it != root.end()) {
+        const auto& theme = Reader::expect_object(*it, "theme");
+        reader.check_keys(theme, "theme.", {"dark", "accent", "font", "font_size"});
+        Reader::read(theme, "theme.", "dark", config.theme.dark);
+        Reader::read(theme, "theme.", "accent", config.theme.accent);
+        Reader::read(theme, "theme.", "font", config.theme.font);
+        Reader::read(theme, "theme.", "font_size", config.theme.font_size);
+        if (config.theme.font_size < 6 || config.theme.font_size > 48) {
+            throw ConfigError("'theme.font_size' must be between 6 and 48");
+        }
+    }
+
+    if (auto it = root.find("desktop"); it != root.end()) {
+        const auto& desktop = Reader::expect_object(*it, "desktop");
+        reader.check_keys(desktop, "desktop.", {"background"});
+        Reader::read(desktop, "desktop.", "background", config.desktop.background);
+    }
+
+    if (auto it = root.find("windows"); it != root.end()) {
+        const auto& windows = Reader::expect_object(*it, "windows");
+        reader.check_keys(windows, "windows.", {"titlebar_height", "border_width"});
+        Reader::read(windows, "windows.", "titlebar_height", config.windows.titlebar_height);
+        Reader::read(windows, "windows.", "border_width", config.windows.border_width);
+        if (config.windows.titlebar_height < 16 || config.windows.titlebar_height > 96) {
+            throw ConfigError("'windows.titlebar_height' must be between 16 and 96");
+        }
+        if (config.windows.border_width < 0 || config.windows.border_width > 16) {
+            throw ConfigError("'windows.border_width' must be between 0 and 16");
+        }
+    }
+
+    Reader::read(root, "", "shell", config.shell);
+    Reader::read(root, "", "autostart", config.autostart);
+    return config;
+}
+
+} // namespace
+
+std::optional<Color> Color::parse(std::string_view text) {
+    if (text.empty() || text.front() != '#') {
+        return std::nullopt;
+    }
+    text.remove_prefix(1);
+    std::array<int, 8> digits{};
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (i >= digits.size()) {
+            return std::nullopt;
+        }
+        auto d = hex_digit(text[i]);
+        if (!d) {
+            return std::nullopt;
+        }
+        digits.at(i) = *d;
+    }
+    auto byte = [&](std::size_t i) { return static_cast<float>(digits.at(i) * 16 + digits.at(i + 1)) / 255.0F; };
+    auto nibble = [&](std::size_t i) { return static_cast<float>(digits.at(i) * 17) / 255.0F; };
+    switch (text.size()) {
+    case 3:
+        return Color{nibble(0), nibble(1), nibble(2), 1.0F};
+    case 6:
+        return Color{byte(0), byte(2), byte(4), 1.0F};
+    case 8:
+        return Color{byte(0), byte(2), byte(4), byte(6)};
+    default:
+        return std::nullopt;
+    }
+}
+
+const Output* Config::output(std::string_view name) const {
+    const Output* wildcard = nullptr;
+    for (const auto& output : outputs) {
+        if (output.name == name) {
+            return &output;
+        }
+        if (output.name == "*") {
+            wildcard = &output;
+        }
+    }
+    return wildcard;
+}
+
+std::filesystem::path config_dir() {
+    // NOLINTBEGIN(concurrency-mt-unsafe)
+    if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg != nullptr && *xdg == '/') {
+        return std::filesystem::path(xdg) / "tetra";
+    }
+    if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+        return std::filesystem::path(home) / ".config" / "tetra";
+    }
+    // NOLINTEND(concurrency-mt-unsafe)
+    return std::filesystem::path("/etc/xdg/tetra");
+}
+
+std::filesystem::path config_file() {
+    return config_dir() / "config.json";
+}
+
+std::expected<Config, std::string> load(const std::filesystem::path& path,
+                                        std::vector<std::string>* warnings) {
+    std::ifstream stream(path);
+    if (!stream) {
+        if (!std::filesystem::exists(path)) {
+            return Config{};
+        }
+        return std::unexpected(std::format("{}: cannot be read", path.string()));
+    }
+    std::stringstream buffer;
+    buffer << stream.rdbuf();
+
+    try {
+        const json root = json::parse(buffer.str(), nullptr, /*allow_exceptions=*/true,
+                                      /*ignore_comments=*/true);
+        Reader reader(warnings);
+        return parse(root, reader);
+    } catch (const json::parse_error& e) {
+        return std::unexpected(std::format("{}: {}", path.string(), e.what()));
+    } catch (const ConfigError& e) {
+        return std::unexpected(std::format("{}: {}", path.string(), e.what()));
+    }
+}
+
+} // namespace tetra::config

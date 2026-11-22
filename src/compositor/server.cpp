@@ -1,15 +1,20 @@
+// Server setup and teardown, configuration, child processes.
+
 #include "server.hpp"
 
 #include "keyboard.hpp"
+#include "layer_surface.hpp"
 #include "log.hpp"
 #include "output.hpp"
-#include "toplevel.hpp"
+#include "popup.hpp"
+#include "view.hpp"
+#include "xdg_view.hpp"
+#include "xwayland_view.hpp"
 
 #include <algorithm>
-#include <charconv>
 #include <csignal>
 #include <cstdlib>
-#include <string_view>
+#include <filesystem>
 #include <utility>
 
 #include <sys/wait.h>
@@ -21,65 +26,9 @@ namespace {
 
 constexpr int kCompositorVersion = 6;
 constexpr int kXdgShellVersion = 3;
-constexpr uint32_t kCursorSize = 24;
-
-// Output size for backends without modes (headless, nested), e.g. "1920x1080".
-std::optional<std::pair<int, int>> requested_output_size() {
-    const char* env = std::getenv("TETRA_OUTPUT_SIZE"); // NOLINT(concurrency-mt-unsafe)
-    if (env == nullptr) {
-        return std::nullopt;
-    }
-    const std::string_view text{env};
-    const auto sep = text.find('x');
-    if (sep == std::string_view::npos) {
-        return std::nullopt;
-    }
-    int width = 0;
-    int height = 0;
-    const auto w = std::from_chars(text.data(), text.data() + sep, width);
-    const auto h = std::from_chars(text.data() + sep + 1, text.data() + text.size(), height);
-    if (w.ec != std::errc{} || h.ec != std::errc{} || width <= 0 || height <= 0) {
-        log::error("ignoring malformed TETRA_OUTPUT_SIZE='{}'", text);
-        return std::nullopt;
-    }
-    return std::pair{width, height};
-}
-
-// Lives as long as its xdg_popup; deletes itself on destroy.
-class Popup {
-public:
-    explicit Popup(wlr_xdg_popup* popup) : popup_(popup) {
-        commit_.connect(popup_->base->surface->events.commit, [this] {
-            if (popup_->base->initial_commit) {
-                wlr_xdg_surface_schedule_configure(popup_->base);
-            }
-        });
-        destroy_.connect(popup_->events.destroy, [this] { delete this; });
-    }
-
-    Popup(const Popup&) = delete;
-    Popup& operator=(const Popup&) = delete;
-    Popup(Popup&&) = delete;
-    Popup& operator=(Popup&&) = delete;
-
-private:
-    ~Popup() = default;
-
-    wlr_xdg_popup* popup_;
-    Listener commit_;
-    Listener destroy_;
-};
-
-int reap_children(int /*signal*/, void* /*data*/) {
-    while (waitpid(-1, nullptr, WNOHANG) > 0) {
-    }
-    return 0;
-}
-
-int terminate_display(int /*signal*/, void* data) {
-    wl_display_terminate(static_cast<wl_display*>(data));
-    return 0;
-}
+constexpr int kLayerShellVersion = 4;
+constexpr auto kShellFastExit = std::chrono::seconds(10);
+constexpr int kShellMaxFastExits = 5;
 
 } // namespace
 
@@ -96,23 +45,40 @@ Server::Server(Options options) : options_(std::move(options)) {}
 Server::~Server() {
     // Order matters: wlroots asserts that no listeners remain on objects it
     // destroys, so tear down our side first, then wlroots in reverse order.
+    terminating_ = true;
     if (display != nullptr) {
         wl_display_destroy_clients(display);
     }
+    if (xwayland != nullptr) {
+        xwayland_ready_.disconnect();
+        xwayland_new_surface_.disconnect();
+        wlr_xwayland_destroy(xwayland);
+        xwayland = nullptr;
+    }
     focus_order_.clear();
-    toplevels_.clear();
+    focused_view_ = nullptr;
+    hovered_view_ = nullptr;
+    grab_ = {};
+    views_.clear();
     keyboards_.clear();
     outputs_.clear();
 
     for (Listener* listener :
-         {&new_output_, &new_input_, &new_toplevel_, &new_popup_, &cursor_motion_,
-          &cursor_motion_absolute_, &cursor_button_, &cursor_axis_, &cursor_frame_,
-          &request_cursor_, &pointer_focus_change_, &request_set_selection_,
-          &request_set_primary_selection_}) {
+         {&new_output_, &new_input_, &new_toplevel_, &new_popup_, &new_layer_surface_,
+          &new_xdg_decoration_, &new_virtual_pointer_, &new_virtual_keyboard_,
+          &request_cursor_shape_, &cursor_motion_, &cursor_motion_absolute_, &cursor_button_,
+          &cursor_axis_, &cursor_frame_, &request_cursor_, &pointer_focus_change_,
+          &request_set_selection_, &request_set_primary_selection_}) {
         listener->disconnect();
     }
     for (wl_event_source* source : signal_sources_) {
         wl_event_source_remove(source);
+    }
+    if (config_source_ != nullptr) {
+        wl_event_source_remove(config_source_);
+    }
+    if (shell_timer_ != nullptr) {
+        wl_event_source_remove(shell_timer_);
     }
 
     if (scene != nullptr) {
@@ -139,14 +105,16 @@ Server::~Server() {
 }
 
 std::expected<void, std::string> Server::init() {
+    load_config();
+
     display = wl_display_create();
     if (display == nullptr) {
         return std::unexpected("failed to create Wayland display");
     }
     wl_event_loop* loop = wl_display_get_event_loop(display);
 
-    // Picks DRM/libinput on a TTY, nested Wayland/X11 inside another session,
-    // or whatever WLR_BACKENDS says (e.g. headless).
+    // DRM/libinput on a TTY, nested inside another session, or whatever
+    // WLR_BACKENDS says (e.g. headless).
     backend = wlr_backend_autocreate(loop, &session);
     if (backend == nullptr) {
         return std::unexpected("failed to create wlroots backend");
@@ -161,86 +129,116 @@ std::expected<void, std::string> Server::init() {
         return std::unexpected("failed to create allocator");
     }
 
-    wlr_compositor_create(display, kCompositorVersion, renderer);
-    wlr_subcompositor_create(display);
-    wlr_data_device_manager_create(display);
-    wlr_primary_selection_v1_device_manager_create(display);
-    wlr_viewporter_create(display);
-    wlr_screencopy_manager_v1_create(display); // screenshots (grim)
-
+    compositor = wlr_compositor_create(display, kCompositorVersion, renderer);
     output_layout = wlr_output_layout_create(display);
-    wlr_xdg_output_manager_v1_create(display, output_layout);
-    new_output_.connect<wlr_output>(backend->events.new_output,
-                                    [this](wlr_output* output) { handle_new_output(output); });
 
     scene = wlr_scene_create();
     scene_layout = wlr_scene_attach_output_layout(scene, output_layout);
     layers.background = wlr_scene_tree_create(&scene->tree);
+    layers.bottom = wlr_scene_tree_create(&scene->tree);
     layers.windows = wlr_scene_tree_create(&scene->tree);
+    layers.top = wlr_scene_tree_create(&scene->tree);
+    layers.fullscreen = wlr_scene_tree_create(&scene->tree);
+    layers.unmanaged = wlr_scene_tree_create(&scene->tree);
     layers.overlay = wlr_scene_tree_create(&scene->tree);
 
-    xdg_shell = wlr_xdg_shell_create(display, kXdgShellVersion);
-    new_toplevel_.connect<wlr_xdg_toplevel>(
-        xdg_shell->events.new_toplevel,
-        [this](wlr_xdg_toplevel* toplevel) { handle_new_toplevel(toplevel); });
-    new_popup_.connect<wlr_xdg_popup>(xdg_shell->events.new_popup,
-                                      [this](wlr_xdg_popup* popup) { handle_new_popup(popup); });
-
+    init_protocols();
     init_input();
+    init_xwayland();
 
-    signal_sources_.push_back(wl_event_loop_add_signal(loop, SIGCHLD, reap_children, nullptr));
-    signal_sources_.push_back(wl_event_loop_add_signal(loop, SIGINT, terminate_display, display));
-    signal_sources_.push_back(wl_event_loop_add_signal(loop, SIGTERM, terminate_display, display));
-    std::erase(signal_sources_, nullptr);
+    new_output_.connect<wlr_output>(backend->events.new_output,
+                                    [this](wlr_output* output) { handle_new_output(output); });
+
+    auto on_signal = [](int signal, void* data) {
+        auto* self = static_cast<Server*>(data);
+        if (signal == SIGCHLD) {
+            self->reap_children();
+        } else {
+            self->terminate();
+        }
+        return 0;
+    };
+    for (const int signal : {SIGCHLD, SIGINT, SIGTERM}) {
+        if (wl_event_source* source = wl_event_loop_add_signal(loop, signal, on_signal, this)) {
+            signal_sources_.push_back(source);
+        }
+    }
+    shell_timer_ = wl_event_loop_add_timer(
+        loop,
+        [](void* data) {
+            static_cast<Server*>(data)->start_shell();
+            return 0;
+        },
+        this);
+
+    watch_config();
     return {};
 }
 
-void Server::init_input() {
-    cursor = wlr_cursor_create();
-    wlr_cursor_attach_output_layout(cursor, output_layout);
-    cursor_manager = wlr_xcursor_manager_create(nullptr, kCursorSize);
+void Server::init_protocols() {
+    wlr_subcompositor_create(display);
+    wlr_data_device_manager_create(display);
+    wlr_primary_selection_v1_device_manager_create(display);
+    wlr_viewporter_create(display);
+    wlr_single_pixel_buffer_manager_v1_create(display);
+    wlr_fractional_scale_manager_v1_create(display, 1);
+    wlr_presentation_create(display, backend, 2);
+    wlr_screencopy_manager_v1_create(display);
+    wlr_xdg_output_manager_v1_create(display, output_layout);
 
-    cursor_motion_.connect<wlr_pointer_motion_event>(cursor->events.motion, [this](auto* event) {
-        wlr_cursor_move(cursor, &event->pointer->base, event->delta_x, event->delta_y);
-        process_cursor_motion(event->time_msec);
-    });
-    cursor_motion_absolute_.connect<wlr_pointer_motion_absolute_event>(
-        cursor->events.motion_absolute, [this](auto* event) {
-            wlr_cursor_warp_absolute(cursor, &event->pointer->base, event->x, event->y);
-            process_cursor_motion(event->time_msec);
+    xdg_shell = wlr_xdg_shell_create(display, kXdgShellVersion);
+    new_toplevel_.connect<wlr_xdg_toplevel>(
+        xdg_shell->events.new_toplevel, [this](wlr_xdg_toplevel* toplevel) {
+            views_.push_back(std::make_unique<XdgView>(*this, toplevel));
         });
-    cursor_button_.connect<wlr_pointer_button_event>(
-        cursor->events.button, [this](auto* event) { handle_cursor_button(*event); });
-    cursor_axis_.connect<wlr_pointer_axis_event>(cursor->events.axis, [this](auto* event) {
-        wlr_seat_pointer_notify_axis(seat, event->time_msec, event->orientation, event->delta,
-                                     event->delta_discrete, event->source,
-                                     event->relative_direction);
-    });
-    cursor_frame_.connect(cursor->events.frame, [this] { wlr_seat_pointer_notify_frame(seat); });
+    new_popup_.connect<wlr_xdg_popup>(xdg_shell->events.new_popup,
+                                      [this](wlr_xdg_popup* popup) { handle_new_popup(popup); });
 
-    new_input_.connect<wlr_input_device>(
-        backend->events.new_input, [this](wlr_input_device* device) { handle_new_input(device); });
+    layer_shell = wlr_layer_shell_v1_create(display, kLayerShellVersion);
+    new_layer_surface_.connect<wlr_layer_surface_v1>(
+        layer_shell->events.new_surface,
+        [this](wlr_layer_surface_v1* surface) { handle_new_layer_surface(surface); });
 
-    seat = wlr_seat_create(display, "seat0");
-    request_cursor_.connect<wlr_seat_pointer_request_set_cursor_event>(
-        seat->events.request_set_cursor, [this](auto* event) {
-            // Any client may ask; only the one with pointer focus gets its way.
-            if (event->seat_client == seat->pointer_state.focused_client) {
-                wlr_cursor_set_surface(cursor, event->surface, event->hotspot_x, event->hotspot_y);
+    // Ask every client that supports it to let us draw its decorations.
+    wlr_xdg_decoration_manager_v1* decorations = wlr_xdg_decoration_manager_v1_create(display);
+    new_xdg_decoration_.connect<wlr_xdg_toplevel_decoration_v1>(
+        decorations->events.new_toplevel_decoration, [this](auto* decoration) {
+            for (const auto& view : views_) {
+                auto* xdg = dynamic_cast<XdgView*>(view.get());
+                if (xdg != nullptr && xdg->toplevel() == decoration->toplevel) {
+                    xdg->set_xdg_decoration(decoration);
+                    return;
+                }
             }
         });
-    pointer_focus_change_.connect<wlr_seat_pointer_focus_change_event>(
-        seat->pointer_state.events.focus_change, [this](auto* event) {
-            if (event->new_surface == nullptr) {
-                wlr_cursor_set_xcursor(cursor, cursor_manager, "default");
+}
+
+void Server::init_xwayland() {
+    xwayland = wlr_xwayland_create(display, compositor, /*lazy=*/true);
+    if (xwayland == nullptr) {
+        log::error("Xwayland is not available; X11 applications will not run");
+        return;
+    }
+    setenv("DISPLAY", xwayland->display_name, 1); // NOLINT(concurrency-mt-unsafe)
+
+    xwayland_ready_.connect(xwayland->events.ready, [this] {
+        wlr_xwayland_set_seat(xwayland, seat);
+        wlr_xcursor_manager_load(cursor_manager, 1);
+        if (wlr_xcursor* xcursor = wlr_xcursor_manager_get_xcursor(cursor_manager, "default", 1)) {
+            wlr_xcursor_image* image = *xcursor->images;
+            wlr_xwayland_set_cursor(xwayland, wlr_xcursor_image_get_buffer(image),
+                                    static_cast<int32_t>(image->hotspot_x),
+                                    static_cast<int32_t>(image->hotspot_y));
+        }
+        log::info("Xwayland ready on DISPLAY={}", xwayland->display_name);
+    });
+    xwayland_new_surface_.connect<wlr_xwayland_surface>(
+        xwayland->events.new_surface, [this](wlr_xwayland_surface* xsurface) {
+            if (xsurface->override_redirect) {
+                new XwaylandUnmanaged(*this, xsurface); // NOLINT: owned by its destroy signal
+            } else {
+                views_.push_back(std::make_unique<XwaylandView>(*this, xsurface));
             }
-        });
-    request_set_selection_.connect<wlr_seat_request_set_selection_event>(
-        seat->events.request_set_selection,
-        [this](auto* event) { wlr_seat_set_selection(seat, event->source, event->serial); });
-    request_set_primary_selection_.connect<wlr_seat_request_set_primary_selection_event>(
-        seat->events.request_set_primary_selection, [this](auto* event) {
-            wlr_seat_set_primary_selection(seat, event->source, event->serial);
         });
 }
 
@@ -253,8 +251,15 @@ std::expected<void, std::string> Server::run() {
         return std::unexpected("failed to start backend");
     }
 
-    setenv("WAYLAND_DISPLAY", socket, 1); // NOLINT(concurrency-mt-unsafe)
+    setenv("WAYLAND_DISPLAY", socket, 1);              // NOLINT(concurrency-mt-unsafe)
+    setenv("XDG_CURRENT_DESKTOP", "tetra", 1);         // NOLINT(concurrency-mt-unsafe)
+    setenv("XDG_SESSION_TYPE", "wayland", 1);          // NOLINT(concurrency-mt-unsafe)
     log::info("running on WAYLAND_DISPLAY={}", socket);
+
+    start_shell();
+    for (const auto& command : config_.autostart) {
+        spawn(command);
+    }
     if (options_.startup_command) {
         spawn(*options_.startup_command);
     }
@@ -264,14 +269,124 @@ std::expected<void, std::string> Server::run() {
 }
 
 void Server::terminate() {
+    terminating_ = true;
     wl_display_terminate(display);
 }
 
-void Server::spawn(const std::string& command) {
+// --- configuration -------------------------------------------------------------
+
+void Server::load_config() {
+    const auto path = options_.config_path ? std::filesystem::path(*options_.config_path)
+                                           : config::config_file();
+    if (options_.config_path) {
+        // The shell and apps read the same file.
+        setenv("TETRA_CONFIG", path.c_str(), 1); // NOLINT(concurrency-mt-unsafe)
+    }
+    std::vector<std::string> warnings;
+    if (auto loaded = config::load(path, &warnings)) {
+        config_ = std::move(*loaded);
+        log::info("configuration: {}", path.string());
+    } else {
+        log::error("{}; using defaults", loaded.error());
+        config_ = {};
+    }
+    for (const auto& warning : warnings) {
+        log::info("configuration: {}", warning);
+    }
+    palette_ = theme::make_palette(config_.theme);
+}
+
+void Server::watch_config() {
+    const auto path = options_.config_path ? std::filesystem::path(*options_.config_path)
+                                           : config::config_file();
+    auto watcher = FileWatcher::create(path);
+    if (!watcher) {
+        log::error("configuration will not reload automatically: {}", watcher.error());
+        return;
+    }
+    config_watcher_ = std::move(*watcher);
+    config_source_ = wl_event_loop_add_fd(
+        wl_display_get_event_loop(display), config_watcher_->fd(), WL_EVENT_READABLE,
+        [](int /*fd*/, uint32_t /*mask*/, void* data) {
+            auto* self = static_cast<Server*>(data);
+            if (self->config_watcher_->changed()) {
+                self->reload_config();
+            }
+            return 0;
+        },
+        this);
+}
+
+void Server::reload_config() {
+    std::vector<std::string> warnings;
+    auto loaded = config::load(config_watcher_->file(), &warnings);
+    if (!loaded) {
+        log::error("{}; keeping the previous configuration", loaded.error());
+        return;
+    }
+    for (const auto& warning : warnings) {
+        log::info("configuration: {}", warning);
+    }
+    if (*loaded == config_) {
+        return;
+    }
+    const config::Config previous = std::exchange(config_, std::move(*loaded));
+    palette_ = theme::make_palette(config_.theme);
+    apply_config(previous);
+    log::info("configuration reloaded");
+}
+
+void Server::apply_config(const config::Config& previous) {
+    if (config_.keyboard != previous.keyboard) {
+        for (const auto& keyboard : keyboards_) {
+            keyboard->apply_config(config_.keyboard);
+        }
+    }
+    if (config_.outputs != previous.outputs) {
+        for (const auto& output : outputs_) {
+            output->apply_config(config_.output(output->wlr()->name));
+        }
+    }
+    if (config_.desktop != previous.desktop) {
+        for (const auto& output : outputs_) {
+            output->update_background();
+        }
+    }
+    if (config_.theme != previous.theme || config_.windows != previous.windows) {
+        for (const auto& view : views_) {
+            view->update_decoration();
+            view->refit();
+        }
+    }
+    if (config_.shell != previous.shell) {
+        if (shell_pid_ > 0) {
+            kill(shell_pid_, SIGTERM); // the reaper starts the new one
+        } else {
+            start_shell();
+        }
+        shell_fast_exits_ = 0;
+    }
+}
+
+// --- child processes -------------------------------------------------------------
+
+pid_t Server::spawn(const std::string& command) {
+    return spawn_argv({"/bin/sh", "-c", command});
+}
+
+pid_t Server::spawn_argv(const std::vector<std::string>& argv) {
+    // Build argv before fork(): no allocation in the child.
+    std::vector<char*> args;
+    args.reserve(argv.size() + 1);
+    for (const auto& arg : argv) {
+        args.push_back(const_cast<char*>(arg.c_str())); // NOLINT: execvp's signature
+    }
+    args.push_back(nullptr);
+
     const pid_t pid = fork();
     if (pid < 0) {
         log::error("fork failed: {}", std::strerror(errno)); // NOLINT(concurrency-mt-unsafe)
-        return;
+        return -1;
     }
     if (pid == 0) {
         // libwayland blocks the signals it handles via signalfd; the mask
@@ -280,289 +395,101 @@ void Server::spawn(const std::string& command) {
         sigemptyset(&none);
         sigprocmask(SIG_SETMASK, &none, nullptr);
         setsid();
-        execl("/bin/sh", "/bin/sh", "-c", command.c_str(), nullptr);
+        execvp(args.front(), args.data());
         _exit(127);
     }
-    log::debug("spawned '{}' (pid {})", command, pid);
+    log::debug("spawned '{}' (pid {})", argv.back(), pid);
+    return pid;
 }
 
-// --- outputs and input devices ---------------------------------------------
+void Server::start_shell() {
+    if (config_.shell.empty() || terminating_ || shell_pid_ > 0) {
+        return;
+    }
+    std::string program = config_.shell;
+    if (program.find('/') == std::string::npos) {
+        // Prefer the shell from the same build/install as this compositor.
+        std::error_code ec;
+        const auto exe_dir = std::filesystem::read_symlink("/proc/self/exe", ec).parent_path();
+        for (const auto& candidate : {exe_dir / program, exe_dir.parent_path() / "shell" / program}) {
+            if (!ec && access(candidate.c_str(), X_OK) == 0) {
+                program = candidate.string();
+                break;
+            }
+        }
+    }
+    shell_pid_ = spawn_argv({program});
+    shell_started_ = std::chrono::steady_clock::now();
+    log::info("started shell {} (pid {})", program, shell_pid_);
+}
+
+void Server::reap_children() {
+    int status = 0;
+    pid_t pid = 0;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        if (pid != shell_pid_) {
+            continue;
+        }
+        shell_pid_ = -1;
+        if (terminating_) {
+            continue;
+        }
+        if (WIFSIGNALED(status)) {
+            log::error("shell killed by signal {}", WTERMSIG(status));
+        } else {
+            log::error("shell exited with status {}", WEXITSTATUS(status));
+        }
+        const bool fast = std::chrono::steady_clock::now() - shell_started_ < kShellFastExit;
+        shell_fast_exits_ = fast ? shell_fast_exits_ + 1 : 0;
+        if (shell_fast_exits_ >= kShellMaxFastExits) {
+            log::error("shell keeps exiting; not restarting it");
+            continue;
+        }
+        // Back off a little more after each quick exit.
+        wl_event_source_timer_update(shell_timer_, 1 + (1000 * shell_fast_exits_));
+    }
+}
+
+// --- new objects ---------------------------------------------------------------------
 
 void Server::handle_new_output(wlr_output* wlr_output) {
-    wlr_output_init_render(wlr_output, allocator, renderer);
-
-    wlr_output_state state;
-    wlr_output_state_init(&state);
-    wlr_output_state_set_enabled(&state, true);
-    if (wlr_output_mode* mode = wlr_output_preferred_mode(wlr_output)) {
-        wlr_output_state_set_mode(&state, mode);
-    } else if (const auto size = requested_output_size()) {
-        wlr_output_state_set_custom_mode(&state, size->first, size->second, 0);
-    }
-    if (!wlr_output_commit_state(wlr_output, &state)) {
-        log::error("failed to enable output {}", wlr_output->name);
-    }
-    wlr_output_state_finish(&state);
-
     outputs_.push_back(std::make_unique<Output>(*this, wlr_output));
-    log::info("output {} added ({}x{})", wlr_output->name, wlr_output->width,
-              wlr_output->height);
 }
 
-void Server::destroy_output(Output& output) {
-    std::erase_if(outputs_, [&](const auto& ptr) { return ptr.get() == &output; });
-}
-
-void Server::handle_new_input(wlr_input_device* device) {
-    switch (device->type) {
-    case WLR_INPUT_DEVICE_KEYBOARD:
-        keyboards_.push_back(std::make_unique<Keyboard>(*this, device));
-        break;
-    case WLR_INPUT_DEVICE_POINTER:
-        wlr_cursor_attach_input_device(cursor, device);
-        break;
-    default:
-        break;
-    }
-    update_seat_capabilities();
-}
-
-void Server::destroy_keyboard(Keyboard& keyboard) {
-    std::erase_if(keyboards_, [&](const auto& ptr) { return ptr.get() == &keyboard; });
-    update_seat_capabilities();
-}
-
-void Server::update_seat_capabilities() {
-    // We always draw a cursor, so always advertise a pointer.
-    uint32_t caps = WL_SEAT_CAPABILITY_POINTER;
-    if (!keyboards_.empty()) {
-        caps |= WL_SEAT_CAPABILITY_KEYBOARD;
-    }
-    wlr_seat_set_capabilities(seat, caps);
-}
-
-bool Server::handle_keybinding(uint32_t modifiers, xkb_keysym_t sym) {
-    // Ctrl+Alt+F<n> arrives as XF86Switch_VT_<n>.
-    if (sym >= XKB_KEY_XF86Switch_VT_1 && sym <= XKB_KEY_XF86Switch_VT_12) {
-        if (session != nullptr) {
-            wlr_session_change_vt(session, sym - XKB_KEY_XF86Switch_VT_1 + 1);
+void Server::handle_new_layer_surface(wlr_layer_surface_v1* layer_surface) {
+    if (layer_surface->output == nullptr) {
+        // Client let us choose: the output under the cursor.
+        wlr_output* output = wlr_output_layout_output_at(output_layout, cursor->x, cursor->y);
+        if (output == nullptr && !outputs_.empty()) {
+            output = outputs_.front()->wlr();
         }
-        return true;
+        layer_surface->output = output;
     }
-
-    // Development bindings, to be replaced by the config-driven keymap.
-    const bool super = (modifiers & WLR_MODIFIER_LOGO) != 0;
-    const bool shift = (modifiers & WLR_MODIFIER_SHIFT) != 0;
-    const bool alt = (modifiers & WLR_MODIFIER_ALT) != 0;
-    if (super && shift && sym == XKB_KEY_Escape) {
-        terminate();
-        return true;
+    Output* output = find_output(layer_surface->output);
+    if (output == nullptr) {
+        wlr_layer_surface_v1_destroy(layer_surface);
+        return;
     }
-    if (super && sym == XKB_KEY_Return) {
-        spawn("foot");
-        return true;
-    }
-    if (alt && sym == XKB_KEY_Tab) {
-        focus_next();
-        return true;
-    }
-    return false;
+    output->add_layer_surface(layer_surface);
 }
 
-// --- toplevels ----------------------------------------------------------------
-
-void Server::handle_new_toplevel(wlr_xdg_toplevel* xdg_toplevel) {
-    toplevels_.push_back(std::make_unique<Toplevel>(*this, xdg_toplevel));
-}
-
-void Server::handle_new_popup(wlr_xdg_popup* xdg_popup) {
-    // Popups are rendered as part of their parent's scene tree.
-    wlr_xdg_surface* parent = wlr_xdg_surface_try_from_wlr_surface(xdg_popup->parent);
-    if (parent != nullptr && parent->data != nullptr) {
-        xdg_popup->base->data =
-            wlr_scene_xdg_surface_create(static_cast<wlr_scene_tree*>(parent->data), xdg_popup->base);
-    } else {
-        log::error("popup without a known parent; it will not be shown");
+void Server::handle_new_popup(wlr_xdg_popup* popup) {
+    if (popup->parent == nullptr) {
+        return; // layer-shell popups get their parent later; see LayerSurface
     }
-    new Popup(xdg_popup); // NOLINT(*-owning-memory): owned by its destroy signal
-}
-
-void Server::destroy_toplevel(Toplevel& toplevel) {
-    std::erase(focus_order_, &toplevel);
-    if (grab_.toplevel == &toplevel) {
-        grab_ = {};
-    }
-    std::erase_if(toplevels_, [&](const auto& ptr) { return ptr.get() == &toplevel; });
-}
-
-void Server::handle_toplevel_mapped(Toplevel& toplevel) {
-    focus(&toplevel);
-}
-
-void Server::handle_toplevel_unmapped(Toplevel& toplevel) {
-    if (grab_.toplevel == &toplevel) {
-        grab_ = {};
-    }
-    const bool was_focused = seat->keyboard_state.focused_surface == toplevel.surface();
-    std::erase(focus_order_, &toplevel);
-    if (was_focused) {
-        if (focus_order_.empty()) {
-            wlr_seat_keyboard_notify_clear_focus(seat);
-        } else {
-            focus(focus_order_.front());
+    if (wlr_xdg_surface* parent = wlr_xdg_surface_try_from_wlr_surface(popup->parent)) {
+        if (parent->data != nullptr) {
+            Popup::create(popup, *static_cast<PopupParent*>(parent->data));
+            return;
         }
     }
-}
-
-void Server::focus(Toplevel* toplevel) {
-    if (toplevel == nullptr) {
-        return;
-    }
-    wlr_surface* previous = seat->keyboard_state.focused_surface;
-    wlr_surface* surface = toplevel->surface();
-    if (previous == surface) {
-        return;
-    }
-    if (previous != nullptr) {
-        if (wlr_xdg_toplevel* prev = wlr_xdg_toplevel_try_from_wlr_surface(previous)) {
-            wlr_xdg_toplevel_set_activated(prev, false);
+    if (wlr_layer_surface_v1* parent = wlr_layer_surface_v1_try_from_wlr_surface(popup->parent)) {
+        if (parent->data != nullptr) {
+            Popup::create(popup, *static_cast<PopupParent*>(parent->data));
+            return;
         }
     }
-
-    toplevel->raise();
-    std::erase(focus_order_, toplevel);
-    focus_order_.insert(focus_order_.begin(), toplevel);
-    toplevel->set_activated(true);
-
-    if (wlr_keyboard* keyboard = wlr_seat_get_keyboard(seat)) {
-        wlr_seat_keyboard_notify_enter(seat, surface, keyboard->keycodes, keyboard->num_keycodes,
-                                       &keyboard->modifiers);
-    } else {
-        wlr_seat_keyboard_notify_enter(seat, surface, nullptr, 0, nullptr);
-    }
-}
-
-void Server::focus_next() {
-    if (focus_order_.size() >= 2) {
-        focus(focus_order_.back());
-    }
-}
-
-// --- pointer ------------------------------------------------------------------
-
-Toplevel* Server::toplevel_at(double lx, double ly, wlr_surface*& surface, double& sx,
-                              double& sy) {
-    wlr_scene_node* node = wlr_scene_node_at(&layers.windows->node, lx, ly, &sx, &sy);
-    if (node == nullptr || node->type != WLR_SCENE_NODE_BUFFER) {
-        return nullptr;
-    }
-    wlr_scene_surface* scene_surface =
-        wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node));
-    if (scene_surface == nullptr) {
-        return nullptr;
-    }
-    surface = scene_surface->surface;
-    for (wlr_scene_tree* tree = node->parent; tree != nullptr; tree = tree->node.parent) {
-        if (tree->node.data != nullptr) {
-            return static_cast<Toplevel*>(tree->node.data);
-        }
-    }
-    return nullptr;
-}
-
-void Server::process_cursor_motion(uint32_t time_msec) {
-    switch (grab_.mode) {
-    case CursorMode::Move:
-        process_move();
-        return;
-    case CursorMode::Resize:
-        process_resize();
-        return;
-    case CursorMode::Passthrough:
-        break;
-    }
-
-    double sx = 0;
-    double sy = 0;
-    wlr_surface* surface = nullptr;
-    if (toplevel_at(cursor->x, cursor->y, surface, sx, sy) == nullptr) {
-        wlr_cursor_set_xcursor(cursor, cursor_manager, "default");
-    }
-    if (surface != nullptr) {
-        wlr_seat_pointer_notify_enter(seat, surface, sx, sy);
-        wlr_seat_pointer_notify_motion(seat, time_msec, sx, sy);
-    } else {
-        wlr_seat_pointer_clear_focus(seat);
-    }
-}
-
-void Server::handle_cursor_button(const wlr_pointer_button_event& event) {
-    wlr_seat_pointer_notify_button(seat, event.time_msec, event.button, event.state);
-    if (event.state == WL_POINTER_BUTTON_STATE_RELEASED) {
-        grab_ = {};
-        return;
-    }
-    double sx = 0;
-    double sy = 0;
-    wlr_surface* surface = nullptr;
-    focus(toplevel_at(cursor->x, cursor->y, surface, sx, sy));
-}
-
-void Server::begin_interactive_move(Toplevel& toplevel) {
-    grab_ = {.mode = CursorMode::Move,
-             .toplevel = &toplevel,
-             .x = cursor->x - toplevel.x(),
-             .y = cursor->y - toplevel.y()};
-}
-
-void Server::begin_interactive_resize(Toplevel& toplevel, uint32_t edges) {
-    const wlr_box& geo = toplevel.geometry();
-    const double border_x =
-        toplevel.x() + geo.x + ((edges & WLR_EDGE_RIGHT) != 0 ? geo.width : 0);
-    const double border_y =
-        toplevel.y() + geo.y + ((edges & WLR_EDGE_BOTTOM) != 0 ? geo.height : 0);
-
-    grab_ = {.mode = CursorMode::Resize,
-             .toplevel = &toplevel,
-             .x = cursor->x - border_x,
-             .y = cursor->y - border_y,
-             .box = {.x = geo.x + toplevel.x(),
-                     .y = geo.y + toplevel.y(),
-                     .width = geo.width,
-                     .height = geo.height},
-             .edges = edges};
-}
-
-void Server::process_move() {
-    grab_.toplevel->set_position(static_cast<int>(cursor->x - grab_.x),
-                                 static_cast<int>(cursor->y - grab_.y));
-}
-
-void Server::process_resize() {
-    // Simplification: position and size change immediately instead of waiting
-    // for the client to commit a buffer at the new size.
-    const auto border_x = static_cast<int>(cursor->x - grab_.x);
-    const auto border_y = static_cast<int>(cursor->y - grab_.y);
-    int left = grab_.box.x;
-    int right = grab_.box.x + grab_.box.width;
-    int top = grab_.box.y;
-    int bottom = grab_.box.y + grab_.box.height;
-
-    if ((grab_.edges & WLR_EDGE_TOP) != 0) {
-        top = std::min(border_y, bottom - 1);
-    } else if ((grab_.edges & WLR_EDGE_BOTTOM) != 0) {
-        bottom = std::max(border_y, top + 1);
-    }
-    if ((grab_.edges & WLR_EDGE_LEFT) != 0) {
-        left = std::min(border_x, right - 1);
-    } else if ((grab_.edges & WLR_EDGE_RIGHT) != 0) {
-        right = std::max(border_x, left + 1);
-    }
-
-    Toplevel& toplevel = *grab_.toplevel;
-    const wlr_box& geo = toplevel.geometry();
-    toplevel.set_position(left - geo.x, top - geo.y);
-    wlr_xdg_toplevel_set_size(toplevel.xdg(), right - left, bottom - top);
+    log::error("popup without a known parent; it will not be shown");
 }
 
 } // namespace tetra

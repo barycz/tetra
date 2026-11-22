@@ -8,6 +8,8 @@
 #   -s WxH     output size            (default: 1280x720)
 #   -w SECS    wait before screenshot (default: 2)
 #   -p PRESET  build preset to run    (default: debug)
+#   -c FILE    tetra config file      (default: an empty config, i.e. defaults)
+#   -d         verbose compositor log
 #
 # Example: scripts/run-headless.sh -- 'foot & foot -e htop'
 # The compositor log is written next to the screenshot (*.log).
@@ -18,14 +20,18 @@ out="$root/build/screenshots/headless.png"
 size=1280x720
 wait_secs=2
 preset=debug
+config=""
+debug=0
 
-while getopts "o:s:w:p:h" opt; do
+while getopts "o:s:w:p:c:dh" opt; do
     case "$opt" in
         o) out="$OPTARG" ;;
         s) size="$OPTARG" ;;
         w) wait_secs="$OPTARG" ;;
         p) preset="$OPTARG" ;;
-        *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+        c) config="$OPTARG" ;;
+        d) debug=1 ;;
+        *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
     esac
 done
 shift $((OPTIND - 1))
@@ -48,8 +54,14 @@ export WLR_RENDERER="${WLR_RENDERER:-gles2}"
 export TETRA_OUTPUT_SIZE="$size"
 export LSAN_OPTIONS="${LSAN_OPTIONS:-suppressions=$root/scripts/lsan.supp:print_suppressions=0}"
 
-args=()
+# Tests must not depend on the developer's own ~/.config/tetra.
+if [[ -z "$config" ]]; then
+    config="$runtime/config.json"
+    echo '{}' >"$config"
+fi
+args=(-c "$config")
 [[ -n "$command" ]] && args+=(-s "$command")
+((debug)) && args+=(-d)
 "$bin" "${args[@]}" >"$log" 2>&1 &
 pid=$!
 

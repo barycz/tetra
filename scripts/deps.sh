@@ -20,8 +20,15 @@ packages=(
     libxcb-icccm4-dev libxcb-render0-dev libxcb-res0-dev libxcb-xfixes0-dev
     libxcb-errors-dev
 
-    # dev/test tools: screenshots, a reference terminal, EGL info
-    grim foot mesa-utils
+    # compositor: decorations (title text), config
+    libcairo2-dev libpango1.0-dev nlohmann-json3-dev
+
+    # toolkit: fonts for ImGui
+    libfreetype-dev libfontconfig-dev fonts-inter
+
+    # dev/test tools: screenshots, reference terminals, X11 test apps,
+    # input injection, EGL info
+    grim foot xterm x11-apps wlrctl mesa-utils
 )
 
 sudo apt-get update -qq
