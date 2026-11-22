@@ -60,6 +60,7 @@ void Server::init_input() {
         [this](auto* keyboard) { handle_new_input(&keyboard->keyboard.base); });
 
     seat = wlr_seat_create(display, "seat0");
+    update_seat_capabilities();
     request_cursor_.connect<wlr_seat_pointer_request_set_cursor_event>(
         seat->events.request_set_cursor, [this](auto* event) {
             // Any client may ask; only the one with pointer focus gets its way.
@@ -112,12 +113,10 @@ void Server::destroy_keyboard(Keyboard& keyboard) {
 }
 
 void Server::update_seat_capabilities() {
-    // We always draw a cursor, so always advertise a pointer.
-    uint32_t caps = WL_SEAT_CAPABILITY_POINTER;
-    if (!keyboards_.empty()) {
-        caps |= WL_SEAT_CAPABILITY_KEYBOARD;
-    }
-    wlr_seat_set_capabilities(seat, caps);
+    // Always advertise both: we always draw a cursor, and clients that hold a
+    // wl_keyboard from the start get keys from keyboards plugged in later
+    // (or virtual keyboards) without racing their own setup.
+    wlr_seat_set_capabilities(seat, WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD);
 }
 
 // --- pointer -----------------------------------------------------------------------
@@ -245,6 +244,9 @@ void Server::handle_cursor_button(const wlr_pointer_button_event& event) {
         return;
     }
 
+    for (const auto& keyboard : keyboards_) {
+        keyboard->cancel_super_tap(); // Super+click is not a Super tap
+    }
     const Hit hit = hit_test(cursor->x, cursor->y);
     log::debug("press at {:.0f},{:.0f}: view '{}' decoration part {}", cursor->x, cursor->y,
                hit.view != nullptr ? hit.view->title() : "-",
@@ -389,8 +391,17 @@ bool Server::handle_keybinding(uint32_t modifiers, xkb_keysym_t sym) {
         terminate();
         return true;
     }
+    if (super && sym >= XKB_KEY_F1 && sym <= XKB_KEY_F12) {
+        const std::size_t slot = sym - XKB_KEY_F1;
+        if (shift) {
+            taskbar_.launch(slot);
+        } else {
+            taskbar_.activate(slot);
+        }
+        return true;
+    }
     if (super && sym == XKB_KEY_Return) {
-        spawn("foot");
+        spawn(config_.terminal);
         return true;
     }
     if (alt && sym == XKB_KEY_Tab) {

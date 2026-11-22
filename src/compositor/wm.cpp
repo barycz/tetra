@@ -170,6 +170,7 @@ void Server::focus_view(View* view) {
     view->set_activated(true);
     focused_layer_ = nullptr;
     restore_keyboard_focus();
+    taskbar_.view_focused(*view);
 }
 
 void Server::focus_next_view() {
@@ -191,10 +192,12 @@ View* first_visible(const std::vector<View*>& order) {
 // --- view lifecycle --------------------------------------------------------------------
 
 void Server::handle_view_mapped(View& view) {
+    taskbar_.add_view(view);
     focus_view(&view);
 }
 
 void Server::handle_view_unmapped(View& view) {
+    taskbar_.remove_view(view);
     std::erase(focus_order_, &view);
     if (hovered_view_ == &view) {
         hovered_view_ = nullptr;
@@ -217,6 +220,7 @@ void Server::handle_view_unmapped(View& view) {
 
 void Server::handle_view_minimized(View& view) {
     if (!view.minimized() || focused_view_ != &view) {
+        taskbar_.update();
         return;
     }
     view.set_activated(false);
@@ -229,10 +233,11 @@ void Server::handle_view_minimized(View& view) {
     } else {
         restore_keyboard_focus();
     }
+    taskbar_.update();
 }
 
 void Server::handle_view_title_changed(View& /*view*/) {
-    // The task bar will listen for this (phase 2).
+    taskbar_.update();
 }
 
 void Server::destroy_view(View& view) {

@@ -1,5 +1,6 @@
 #include "bar.hpp"
 
+#include "shell.hpp"
 #include "style.hpp"
 
 #include <imgui.h>
@@ -7,11 +8,20 @@
 #include <array>
 #include <cmath>
 #include <ctime>
+#include <format>
 #include <string>
 
 namespace tetra::shell {
 
 namespace {
+
+constexpr float kLauncherSize = 40;
+constexpr float kLauncherGap = 10;
+constexpr float kSlotWidth = 44;
+constexpr float kSlotHeight = 40;
+constexpr float kGroupGap = 14;
+constexpr float kIconSize = 24;
+constexpr float kTrayIconSize = 16;
 
 ImVec2 lerp(ImVec2 a, ImVec2 b, float t) {
     return {a.x + ((b.x - a.x) * t), a.y + ((b.y - a.y) * t)};
@@ -27,7 +37,6 @@ void draw_logo(ImDrawList* dl, ImVec2 center, float size, ImU32 color) {
     const ImVec2 mid_left = lerp(top, left, 0.5F);
     const ImVec2 mid_right = lerp(top, right, 0.5F);
     const ImVec2 mid_bottom = lerp(left, right, 0.5F);
-
     const std::array<std::array<ImVec2, 3>, 3> corners = {{
         {top, mid_left, mid_right},
         {mid_left, left, mid_bottom},
@@ -52,24 +61,24 @@ std::string format_time(const char* format) {
 
 } // namespace
 
-Bar::Bar(ui::App& app, const ui::OutputInfo& output) : app_(app) {
+Bar::Bar(Shell& shell, const ui::OutputInfo& output) : shell_(shell) {
     window_ = std::make_unique<ui::LayerWindow>(
-        app_, ui::LayerWindow::Options{
-                  .layer = ui::LayerWindow::Layer::Top,
-                  .anchor = ui::LayerWindow::kBottom | ui::LayerWindow::kLeft |
-                            ui::LayerWindow::kRight,
-                  .width = 0,
-                  .height = kHeight,
-                  .exclusive_zone = kHeight,
-                  .keyboard = ui::LayerWindow::Keyboard::None,
-                  .name_space = "tetra-bar",
-                  .output = output.output,
-              });
+        shell_.app(), ui::LayerWindow::Options{
+                          .layer = ui::LayerWindow::Layer::Top,
+                          .anchor = ui::LayerWindow::kBottom | ui::LayerWindow::kLeft |
+                                    ui::LayerWindow::kRight,
+                          .width = 0,
+                          .height = kHeight,
+                          .exclusive_zone = kHeight,
+                          .keyboard = ui::LayerWindow::Keyboard::None,
+                          .name_space = "tetra-bar",
+                          .output = output.output,
+                      });
     window_->on_draw = [this] { draw(); };
 }
 
 void Bar::draw() {
-    const auto& p = app_.palette();
+    const auto& p = shell_.app().palette();
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->Pos);
     ImGui::SetNextWindowSize(viewport->Size);
@@ -87,9 +96,24 @@ void Bar::draw() {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddLine({0, 0.5F}, {width, 0.5F}, ui::to_imu32(p.separator)); // top edge
 
-    constexpr float kButton = 40;
-    draw_launcher(std::round((width - kButton) / 2), std::round((height - kButton) / 2), kButton);
+    // Centre: launcher, then three groups of four slots, like the F-row.
+    const float total = kLauncherSize + kLauncherGap + (Shell::kSlots * kSlotWidth) + (2 * kGroupGap);
+    float x = std::round((width - total) / 2);
+    draw_launcher(x, std::round((height - kLauncherSize) / 2), kLauncherSize);
+    x += kLauncherSize + kLauncherGap;
+    const float slot_y = std::round((height - kSlotHeight) / 2);
+    for (std::size_t i = 0; i < Shell::kSlots; ++i) {
+        if (i > 0 && i % 4 == 0) {
+            x += kGroupGap;
+        }
+        draw_slot(i, shell_.slots().at(i), x, slot_y);
+        x += kSlotWidth;
+    }
+
+    // Right: clock, tray to its left.
+    constexpr float kClockWidth = 76;
     draw_clock(width - 14, height);
+    draw_tray(width - 14 - kClockWidth, height);
 
     ImGui::End();
     ImGui::PopStyleColor();
@@ -97,26 +121,122 @@ void Bar::draw() {
 }
 
 void Bar::draw_launcher(float x, float y, float size) {
-    const auto& p = app_.palette();
+    const auto& p = shell_.app().palette();
     ImGui::SetCursorPos({x, y});
-    ImGui::InvisibleButton("##launcher", {size, size});
-    const bool hovered = ImGui::IsItemHovered();
-    const bool active = ImGui::IsItemActive();
-    if (ImGui::IsItemClicked()) {
-        // The launcher menu arrives in phase 2.
+    if (ImGui::InvisibleButton("##launcher", {size, size})) {
+        shell_.toggle_launcher();
     }
-
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImVec2 min{x, y};
-    const ImVec2 max{x + size, y + size};
-    if (hovered) {
-        dl->AddRectFilled(min, max, ui::to_imu32(active ? p.pressed : p.hover), 8);
+    if (ImGui::IsItemHovered()) {
+        dl->AddRectFilled({x, y}, {x + size, y + size},
+                          ui::to_imu32(ImGui::IsItemActive() ? p.pressed : p.hover), 8);
     }
     draw_logo(dl, {x + (size / 2), y + (size / 2) + 1}, size * 0.55F, ui::to_imu32(p.accent));
 }
 
+void Bar::draw_slot(std::size_t index, const Slot& slot, float x, float y) {
+    const auto& p = shell_.app().palette();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 min{x + 2, y};
+    const ImVec2 max{x + kSlotWidth - 2, y + kSlotHeight};
+    const bool used = !slot.app_id.empty();
+
+    ImGui::PushID(static_cast<int>(index));
+    ImGui::SetCursorPos({x, y});
+    if (ImGui::InvisibleButton("##slot", {kSlotWidth, kSlotHeight}) && used) {
+        shell_.activate_slot(index);
+    }
+    const bool hovered = ImGui::IsItemHovered();
+    if (hovered && used && ImGui::IsMouseReleased(ImGuiMouseButton_Middle)) {
+        shell_.launch_slot(index); // middle click: new instance
+    }
+    ImGui::PopID();
+
+    // Background: focused window's slot is highlighted, hover on top.
+    if (slot.focused) {
+        dl->AddRectFilled(min, max, ui::to_imu32(p.hover), 6);
+    }
+    if (hovered && used) {
+        dl->AddRectFilled(min, max, ui::to_imu32(ImGui::IsItemActive() ? p.pressed : p.hover), 6);
+    }
+    if (!used) {
+        // Free slot: a faint outline keeps the F-key grid visible.
+        dl->AddRect({min.x + 3, min.y + 3}, {max.x - 3, max.y - 3}, ui::to_imu32(p.separator), 5);
+    }
+
+    // F-key number, small and quiet, top-left.
+    const std::string label = std::format("F{}", index + 1);
+    ImGui::PushFont(nullptr, 9);
+    dl->AddText({min.x + 3, min.y + 1}, ui::to_imu32(p.text_dim.with_alpha(used ? 0.75F : 0.5F)),
+                label.c_str());
+    ImGui::PopFont();
+
+    if (used) {
+        const float scale = ImGui::GetIO().DisplayFramebufferScale.x;
+        const int pixels = static_cast<int>(kIconSize * scale);
+        const ui::Icon* icon = shell_.icons().get(slot.icon, pixels);
+        if (icon == nullptr) {
+            icon = shell_.icons().get("application-x-executable", pixels);
+        }
+        const ImVec2 icon_min{std::round(x + ((kSlotWidth - kIconSize) / 2)), y + 6};
+        const ImVec2 icon_max{icon_min.x + kIconSize, icon_min.y + kIconSize};
+        const float alpha = slot.windows == 0 || slot.minimized ? 0.75F : 1.0F;
+        if (icon != nullptr) {
+            const ImU32 tint = icon->symbolic ? ui::to_imu32(p.text.with_alpha(alpha))
+                                              : ui::to_imu32(config::Color{1, 1, 1, alpha});
+            dl->AddImage(icon->ref(), icon_min, icon_max, {0, 0}, {1, 1}, tint);
+        }
+
+        // Running indicator: short line; long accent line when focused.
+        if (slot.windows > 0) {
+            const float line = slot.focused ? 16 : 6;
+            const float cx = x + (kSlotWidth / 2);
+            const config::Color& color = slot.focused ? p.accent : p.text_dim;
+            dl->AddRectFilled({cx - (line / 2), max.y - 4}, {cx + (line / 2), max.y - 2},
+                              ui::to_imu32(color), 1);
+        }
+        // Stacked windows: count badge.
+        if (slot.windows > 1) {
+            const ImVec2 center{icon_max.x + 1, icon_min.y + 2};
+            dl->AddCircleFilled(center, 7, ui::to_imu32(p.accent));
+            const std::string count = slot.windows > 9 ? "9+" : std::to_string(slot.windows);
+            ImGui::PushFont(nullptr, 10);
+            const ImVec2 size = ImGui::CalcTextSize(count.c_str());
+            dl->AddText({std::round(center.x - (size.x / 2)), std::round(center.y - (size.y / 2))},
+                        ui::to_imu32(p.accent_text), count.c_str());
+            ImGui::PopFont();
+        }
+    }
+}
+
+float Bar::draw_tray(float right, float height) {
+    const auto& p = shell_.app().palette();
+    const auto& state = shell_.tray().state();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float scale = ImGui::GetIO().DisplayFramebufferScale.x;
+    const int pixels = static_cast<int>(kTrayIconSize * scale);
+    const float y = std::round((height - kTrayIconSize) / 2);
+
+    float x = right;
+    auto draw_icon = [&](const std::string& name) {
+        const ui::Icon* icon = shell_.icons().get(name, pixels);
+        if (icon == nullptr) {
+            return;
+        }
+        x -= kTrayIconSize;
+        const ImU32 tint = icon->symbolic ? ui::to_imu32(p.text) : IM_COL32_WHITE;
+        dl->AddImage(icon->ref(), {x, y}, {x + kTrayIconSize, y + kTrayIconSize}, {0, 0}, {1, 1}, tint);
+        x -= 12;
+    };
+    if (!state.battery_icon.empty()) {
+        draw_icon(state.battery_icon);
+    }
+    draw_icon(state.network_icon);
+    return x;
+}
+
 void Bar::draw_clock(float right, float height) {
-    const auto& p = app_.palette();
+    const auto& p = shell_.app().palette();
     const std::string time = format_time("%H:%M");
     const std::string date = format_time("%x");
 
@@ -137,8 +257,8 @@ void Bar::draw_clock(float right, float height) {
     dl->AddText({std::round(right - time_size.x), top}, ui::to_imu32(p.text), time.c_str());
     ImGui::PopFont();
     ImGui::PushFont(nullptr, small_size);
-    dl->AddText({std::round(right - date_size.x), top + time_size.y + gap}, ui::to_imu32(p.text_dim),
-                date.c_str());
+    dl->AddText({std::round(right - date_size.x), top + time_size.y + gap},
+                ui::to_imu32(p.text_dim), date.c_str());
     ImGui::PopFont();
 }
 

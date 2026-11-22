@@ -403,9 +403,22 @@ void App::load_config(bool initial) {
 
 // --- globals -------------------------------------------------------------------------
 
+void* App::bind_global(const wl_interface* interface, uint32_t max_version) {
+    auto it = std::ranges::find_if(globals_, [&](const Global& g) { return g.interface == interface->name; });
+    if (it == globals_.end()) {
+        return nullptr;
+    }
+    return wl_registry_bind(registry_, it->name, interface, std::min(it->version, max_version));
+}
+
+void App::make_gl_current() const {
+    eglMakeCurrent(egl_display_, EGL_NO_SURFACE, EGL_NO_SURFACE, egl_context_);
+}
+
 void App::handle_global(wl_registry* registry, uint32_t name, const char* interface,
                         uint32_t version) {
     const std::string_view iface{interface};
+    globals_.push_back({name, std::string(iface), version});
     if (iface == wl_compositor_interface.name) {
         compositor_ = bind<wl_compositor>(registry, name, &wl_compositor_interface, std::min(version, 6U));
     } else if (iface == xdg_wm_base_interface.name) {
@@ -433,6 +446,7 @@ void App::handle_global(wl_registry* registry, uint32_t name, const char* interf
 }
 
 void App::handle_global_remove(uint32_t name) {
+    std::erase_if(globals_, [&](const Global& g) { return g.name == name; });
     auto it = std::ranges::find_if(outputs_, [&](const auto& o) { return o->info.global == name; });
     if (it == outputs_.end()) {
         return;

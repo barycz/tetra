@@ -7,6 +7,7 @@
 #include <GLES3/gl3.h>
 #include <imgui.h>
 #include <imgui_impl_opengl3.h>
+#include <imgui_internal.h>
 #include <linux/input-event-codes.h>
 #include <wayland-egl.h>
 
@@ -49,11 +50,45 @@ private:
     ImGuiContext* previous_;
 };
 
+// Restores the EGL surfaces/context current at construction. Windows can be
+// created or destroyed while another window is drawing (e.g. the bar opening
+// the launcher from a click); that must not redirect the drawing window's
+// frame to another surface.
+class EglGuard {
+public:
+    EglGuard()
+        : display_(eglGetCurrentDisplay()), draw_(eglGetCurrentSurface(EGL_DRAW)),
+          read_(eglGetCurrentSurface(EGL_READ)), context_(eglGetCurrentContext()) {}
+    ~EglGuard() {
+        if (display_ != EGL_NO_DISPLAY) {
+            eglMakeCurrent(display_, draw_, read_, context_);
+        }
+    }
+    // `surface` is about to be destroyed: do not restore it.
+    void forget(EGLSurface surface) {
+        if (draw_ == surface || read_ == surface) {
+            draw_ = EGL_NO_SURFACE;
+            read_ = EGL_NO_SURFACE;
+        }
+    }
+    EglGuard(const EglGuard&) = delete;
+    EglGuard& operator=(const EglGuard&) = delete;
+    EglGuard(EglGuard&&) = delete;
+    EglGuard& operator=(EglGuard&&) = delete;
+
+private:
+    EGLDisplay display_;
+    EGLSurface draw_;
+    EGLSurface read_;
+    EGLContext context_;
+};
+
 } // namespace
 
 // --- Window --------------------------------------------------------------------------
 
 Window::Window(App& app) : app_(app), last_frame_(std::chrono::steady_clock::now()) {
+    const EglGuard egl;
     surface_ = wl_compositor_create_surface(app_.compositor());
     wl_surface_add_listener(surface_, &kSurfaceListener, this);
 
@@ -73,6 +108,8 @@ Window::Window(App& app) : app_(app), last_frame_(std::chrono::steady_clock::now
 }
 
 Window::~Window() {
+    EglGuard egl;
+    egl.forget(egl_surface_);
     app_.unregister_window(this);
     {
         const ContextGuard guard(imgui_);
@@ -143,6 +180,7 @@ void Window::ensure_egl_surface() {
     const int pw = width_ * scale_;
     const int ph = height_ * scale_;
     if (egl_window_ == nullptr) {
+        const EglGuard egl;
         egl_window_ = wl_egl_window_create(surface_, pw, ph);
         egl_surface_ = eglCreatePlatformWindowSurface(app_.egl_display(), app_.egl_config(),
                                                       egl_window_, nullptr);
@@ -183,6 +221,8 @@ void Window::render() {
     }
     ImGui::Render();
 
+    // on_draw may have created or destroyed windows; draw into ours.
+    make_current();
     glViewport(0, 0, width_ * scale_, height_ * scale_);
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -192,8 +232,20 @@ void Window::render() {
     // frame (if any) waits for it, so hidden windows stop rendering.
     frame_callback_ = wl_surface_frame(surface_);
     wl_callback_add_listener(frame_callback_, &kFrameListener, this);
-    eglSwapBuffers(app_.egl_display(), egl_surface_);
+    if (eglSwapBuffers(app_.egl_display(), egl_surface_) == EGL_FALSE) {
+        // Nothing was committed, so the callback would never fire and the
+        // window would never render again.
+        wl_callback_destroy(frame_callback_);
+        frame_callback_ = nullptr;
+    }
     --frames_needed_;
+
+    // ImGui trickles input: a move, a press and a release queued together
+    // take a frame each. Keep rendering until the queue is drained, or a
+    // quick click is only seen at the next mouse move.
+    if (!GImGui->InputEventsQueue.empty()) {
+        request_redraw(1);
+    }
 
     if (pointer_inside_) {
         app_.set_cursor(ImGui::GetMouseCursor());

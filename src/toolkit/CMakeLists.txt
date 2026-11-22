@@ -1,5 +1,5 @@
 pkg_check_modules(TOOLKIT_DEPS REQUIRED IMPORTED_TARGET
-    wayland-client wayland-egl egl glesv2 xkbcommon fontconfig freetype2)
+    wayland-client wayland-egl egl glesv2 xkbcommon fontconfig freetype2 cairo librsvg-2.0)
 
 # --- Dear ImGui (vendored) -------------------------------------------------------
 set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/third_party/imgui")
@@ -23,6 +23,7 @@ target_link_libraries(imgui PUBLIC PkgConfig::TOOLKIT_DEPS)
 # --- tetra toolkit ---------------------------------------------------------------------
 add_library(tetra_toolkit STATIC
     app.cpp
+    icons.cpp
     keymap.cpp
     style.cpp
     window.cpp

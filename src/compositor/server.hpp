@@ -2,8 +2,10 @@
 
 #include "config.hpp"
 #include "decoration.hpp"
+#include "desktop_entry.hpp"
 #include "file_watcher.hpp"
 #include "listener.hpp"
+#include "taskbar.hpp"
 #include "theme.hpp"
 #include "wlr.hpp"
 
@@ -19,6 +21,7 @@ namespace tetra {
 class Keyboard;
 class LayerSurface;
 class Output;
+class ShellProtocol;
 class View;
 
 struct Options {
@@ -48,6 +51,11 @@ public:
 
     [[nodiscard]] const config::Config& config() const noexcept { return config_; }
     [[nodiscard]] const theme::Palette& palette() const noexcept { return palette_; }
+    [[nodiscard]] const DesktopDatabase& desktop_entries() const noexcept { return desktop_entries_; }
+    [[nodiscard]] Taskbar& taskbar() noexcept { return taskbar_; }
+    [[nodiscard]] View* focused_view() const noexcept { return focused_view_; }
+    // Super tap: ask the shell to open its launcher.
+    void show_launcher();
 
     // --- outputs & layers (wm.cpp) -------------------------------------------
     [[nodiscard]] Output* find_output(wlr_output* wlr_output) const;
@@ -161,9 +169,15 @@ private:
         Decoration::Part button = Decoration::Part::None;
     };
 
+    // Which client may see which global (shell and Xwayland-only globals).
+    static bool filter_global(const wl_client* client, const wl_global* global, void* data);
+
     Options options_;
     config::Config config_;
     theme::Palette palette_;
+    DesktopDatabase desktop_entries_;
+    Taskbar taskbar_{*this};
+    std::unique_ptr<ShellProtocol> shell_protocol_;
     std::optional<FileWatcher> config_watcher_;
     wl_event_source* config_source_ = nullptr;
 

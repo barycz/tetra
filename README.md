@@ -4,8 +4,9 @@ A sleek, minimal, lightweight desktop environment for Linux: a wlroots-based
 Wayland compositor with a Dear ImGui shell and core apps, unified in look,
 controls and configuration. See [docs/design.md](docs/design.md).
 
-Status: phase 1 — compositor with server-side decorations, layer-shell and
-Xwayland; ImGui toolkit; `tetra-shell` with a bottom bar and clock; one JSON
+Status: phase 2 — compositor with server-side decorations, layer-shell and
+Xwayland; ImGui toolkit; `tetra-shell` with the F-key task bar (12 slots in
+groups of four), app launcher, network/battery indicators and clock; one JSON
 configuration with live reload ([docs/config.md](docs/config.md)).
 
 ## Building (Debian 13)
@@ -28,9 +29,13 @@ Other presets: `clang`, `asan` (ASan + UBSan), `release`.
 
 ```bash
 scripts/run-headless.sh -s 1920x1080 -- 'foot & xterm'
-scripts/run-headless.sh -w 6 -- tests/headless/reload-and-restart.sh
+scripts/run-headless.sh -w 6 -- tests/headless/fkeys.sh
 # -> build/screenshots/headless.png (+ .log)
+scripts/run-tests.sh        # every scenario under ASan/UBSan
 ```
+
+`tests/bench/pointer-load.sh` measures compositor and app CPU while the
+pointer sweeps over an app (`-w 25`, see the script header).
 
 **Nested** in an existing Wayland session (opens as a window):
 
@@ -40,7 +45,9 @@ build/debug/src/compositor/tetra -s foot
 
 **On real hardware**: switch to a free TTY (Ctrl+Alt+F3), log in, then run
 `build/debug/src/compositor/tetra -s foot`. Your user needs to be in the
-`video`, `render` and `input` groups.
+`video`, `render` and `input` groups. To keep a log for debugging:
+`build/debug/src/compositor/tetra 2> ~/tetra.log` (`-d` for verbose); frames
+that take over 12 ms to render are logged as `slow frame`.
 
 To pick tetra in GDM's session menu, add a session entry (needs root):
 
@@ -53,27 +60,32 @@ printf '[Desktop Entry]\nName=tetra (dev build)\nExec=%s\nType=Application\n' \
 
 | Input | Action |
 |---|---|
+| Super (tap), or the logo on the bar | app launcher (type to search, Enter to start) |
+| Super+F1…F12, or click a slot | launch the pinned app / focus it / cycle its windows / minimize |
+| Super+Shift+F1…F12, or middle-click a slot | new instance of the slot's app |
 | Drag the title bar | move (dragging a maximized window restores it) |
 | Double-click the title bar | maximize / restore |
 | Drag a window edge or corner | resize |
 | Super+Up / Super+Down | maximize / restore or minimize |
 | Alt+Tab | cycle windows (also brings back minimized ones) |
 | Alt+F4 | close window |
-| Super+Return | open a terminal (foot) |
+| Super+Return | open a terminal (`terminal` in the config, foot by default) |
 | Super+Shift+Escape | quit tetra |
 | Ctrl+Alt+F1…F12 | switch VT |
 
-These built-in bindings become configurable with the task bar (phase 2).
+Pin apps to slots with `taskbar.pinned` in `~/.config/tetra/config.json`.
 
 ## Layout
 
 ```
-src/core/         configuration, theme palette, file watching (shared)
-src/compositor/   the compositor (binary: tetra)
-src/toolkit/      ImGui-on-Wayland toolkit for the shell and apps
-src/shell/        tetra-shell: bar (launcher, tray, ... later)
-scripts/          deps, vendored build, headless runner
+src/core/         config, theme palette, desktop entries, process spawning (shared)
+src/compositor/   the compositor (binary: tetra), incl. the task bar slot model
+src/toolkit/      ImGui-on-Wayland toolkit for the shell and apps (incl. icons)
+src/shell/        tetra-shell: bar, launcher, tray
+protocols/        tetra's private Wayland protocol (compositor <-> shell)
+scripts/          deps, vendored build, headless runner, test runner
 tests/headless/   scripted headless scenarios
+tests/tools/      tetra-sendkeys (key chords for tests)
 patches/          local patches to vendored dependencies
 third_party/      pinned submodules (wlroots, wayland, imgui, ...)
 docs/             design notes, configuration reference

@@ -50,3 +50,8 @@ add_subdirectory(src/core)
 add_subdirectory(src/compositor)
 add_subdirectory(src/toolkit)
 add_subdirectory(src/shell)
+
+option(TETRA_BUILD_TEST_TOOLS "Build helpers for the headless tests" ON)
+if(TETRA_BUILD_TEST_TOOLS)
+    add_subdirectory(tests/tools)
+endif()

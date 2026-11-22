@@ -170,8 +170,8 @@ Config parse(const json& root, Reader& reader) {
     Config config;
     Reader::expect_object(root, "");
     reader.check_keys(root, "",
-                      {"$schema", "keyboard", "outputs", "theme", "desktop", "windows", "shell",
-                       "autostart"});
+                      {"$schema", "keyboard", "outputs", "theme", "desktop", "windows", "taskbar",
+                       "shell", "terminal", "autostart"});
 
     if (auto it = root.find("keyboard"); it != root.end()) {
         const auto& kb = Reader::expect_object(*it, "keyboard");
@@ -250,7 +250,19 @@ Config parse(const json& root, Reader& reader) {
         }
     }
 
+    if (auto it = root.find("taskbar"); it != root.end()) {
+        const auto& taskbar = Reader::expect_object(*it, "taskbar");
+        reader.check_keys(taskbar, "taskbar.", {"pinned"});
+        Reader::read(taskbar, "taskbar.", "pinned", config.taskbar.pinned);
+        if (config.taskbar.pinned.size() > Taskbar::kMaxPins) {
+            throw ConfigError(std::format("'taskbar.pinned' holds at most {} apps (one slot stays "
+                                          "free for other windows)",
+                                          Taskbar::kMaxPins));
+        }
+    }
+
     Reader::read(root, "", "shell", config.shell);
+    Reader::read(root, "", "terminal", config.terminal);
     Reader::read(root, "", "autostart", config.autostart);
     return config;
 }

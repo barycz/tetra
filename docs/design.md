@@ -48,15 +48,42 @@ Windows-like rather than macOS-like:
   - Empty pinned slot: launch the app.
   - Stack: focus its most recent window; pressing again cycles; on a single
     focused window it minimises.
-  - **Super+Shift+F*n***: new instance.
-  - Hold Super+F*n* or click: window list popup for that slot.
+  - **Super+Shift+F*n*** (or middle click): new instance.
+  - Hold Super+F*n* or click: window list popup for that slot. *(not yet —
+    needs popup surfaces in the toolkit; clicking cycles for now)*
 - A mixed stack shows its most recently used app's icon with a window-count badge.
+- Pins are desktop file IDs (`taskbar.pinned` in the config). Apps are
+  matched to them by app_id, then StartupWMClass, so X11 apps (WM_CLASS
+  `XTerm` → `debian-xterm`) group correctly.
+- **Super tap** (press and release with nothing else) opens the launcher.
+
+### Implementation (phase 2)
+
+- The **compositor owns the slot model** (`src/compositor/taskbar.cpp`); key
+  bindings and clicks end up in the same `Taskbar::activate/launch`.
+- **`tetra-shell-unstable-v1`** (`protocols/`) publishes slot state to the
+  shell (`slot` events + `done`) and carries `activate_slot` / `launch_slot`
+  requests and the `show_launcher` event. A global filter offers it only to
+  the shell process the compositor started (and offers `xwayland_shell_v1`
+  only to Xwayland).
+- The shell resolves icons through the desktop database and the icon theme
+  (`ui::IconCache`: Adwaita → hicolor → pixmaps; PNG via cairo, SVG via
+  librsvg; symbolic icons tinted with the text colour).
+- Launcher: a full-output transparent overlay layer surface with exclusive
+  keyboard focus; the panel sits above the bar. Search matches name, generic
+  name, ID and keywords. Click outside or Escape closes it.
+- Apps are started with `spawn_detached()` (double fork, new session), so
+  they survive a shell restart.
 
 ### Tray (right side)
 
 Clock/calendar, battery (UPower), network (NetworkManager), volume (PipeWire),
 Bluetooth (BlueZ), notifications, plus **StatusNotifierItem** icons for
 third-party apps (Steam, Discord, …).
+
+Phase 2 reads network and battery state from sysfs (`/sys/class/net`,
+`/sys/class/power_supply`) every 5 s; the D-Bus services, volume and
+Bluetooth arrive with phase 3.
 
 ## Architecture
 
@@ -194,6 +221,17 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   server-side decorations) set the role.
 - Fonts: fontconfig resolves `theme.font` to a file; ImGui renders it with
   FreeType. Cursor shapes go through `cursor-shape-v1`.
+- Rules learned the hard way (phase 2 bug fixes):
+  - Creating or destroying a window must not change the current EGL surface
+    (`EglGuard`): windows are created from other windows' draw callbacks
+    (the bar opening the launcher). Otherwise the drawing window's frame is
+    never committed, its frame callback never fires and it freezes for good.
+  - ImGui trickles queued input (move, press, release take a frame each), so
+    a window keeps rendering until `InputEventsQueue` is empty; a fixed
+    "two frames per event" loses quick clicks.
+  - Hit tests for "click outside closes" use plain rectangles:
+    `IsWindowHovered()` is false while an item in the window is active.
+  - Never destroy a window from its own draw callback; defer it to a timer.
 
 ## Development workflow
 
@@ -202,8 +240,12 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   backend with a private runtime dir and an empty config, launches clients, and
   screenshots with `grim` — no display needed, works over SSH, and is the basis
   for screenshot regression tests in CI. Scenarios live in `tests/headless/`;
-  input is injected with `wlrctl` through the virtual pointer/keyboard
-  protocols (the pointer starts at 100,100).
+  pointer input is injected with `wlrctl` (the pointer starts at 100,100),
+  key chords with our `tetra-sendkeys` (`super+F1`, `super` …).
+  `scripts/run-tests.sh` runs all scenarios (ASan by default) and flags
+  crashes and sanitizer reports; the screenshots still need looking at.
+- The seat always advertises a keyboard, so clients hold a `wl_keyboard`
+  before any (virtual or hot-plugged) keyboard appears.
 - **Real session:** from a spare TTY, or later through a `wayland-sessions`
   entry in GDM. GDM stays until tetra has its own greetd greeter.
 - Presets: `debug` (GCC, -Werror), `clang`, `asan` (ASan + UBSan), `release`.
@@ -216,6 +258,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
    JSON config, Xwayland; libtoolkit with event-driven ImGui; a bar with a clock.
    *(done; not yet tried on a real seat)*
 2. **Task bar** — private protocol, F-key slots, launcher, basic tray.
+   *(done; window-list popup, tooltips and pinning from the UI pending)*
 3. **Shell services** — notifications, OSD, lock/idle, polkit agent, screenshots, SNI tray.
 4. **Settings app.**
 5. **Apps and portal** — terminal, system monitor, portal backend.
@@ -231,6 +274,16 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   toolkit only handles integer `preferred_buffer_scale` so far.
 - KDE `server-decoration` (some GTK3/Qt5 apps) is not implemented; those
   apps draw their own decorations.
+- Toolkit popups (xdg_popup from layer surfaces): needed for slot tooltips,
+  the per-slot window list and right-click menus (pin/unpin).
+- Pinning from the UI means the shell writes `config.json`; nlohmann/json
+  drops comments, so editing must preserve the user's file (or pins move to
+  a separate state file).
+- The desktop database is read at startup (compositor) and when the
+  launcher opens (shell); watching `applications/` dirs would pick up new
+  installs immediately.
+- XPM icons (e.g. xterm's `mini.xterm`) are not loaded; such apps fall back
+  to a matching theme icon or the generic one.
 
 ## Decided
 

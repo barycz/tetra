@@ -84,6 +84,8 @@ extern "C" {
 #include <wlr/util/edges.h>
 #include <wlr/util/log.h>
 #include <wlr/xcursor.h>
+#include <wlr/xwayland/server.h>
+#include <wlr/xwayland/shell.h>
 #include <wlr/xwayland/xwayland.h>
 
 #undef delete

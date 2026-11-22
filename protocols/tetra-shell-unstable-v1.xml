@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="tetra_shell_unstable_v1">
+  <copyright>
+    Copyright (c) 2026 The tetra authors. SPDX-License-Identifier: MIT
+  </copyright>
+
+  <description summary="private protocol between the tetra compositor and tetra-shell">
+    The compositor owns window management, including the task bar's slot
+    model (which windows live in which of the 12 slots, pins, F-key
+    activation); the shell only displays it and forwards clicks.
+
+    The global is offered only to the shell process the compositor started.
+    Unstable: both sides are built from the same source tree.
+  </description>
+
+  <interface name="tetra_shell_v1" version="1">
+    <enum name="slot_state" bitfield="true">
+      <entry name="focused" value="1" summary="a window in this slot has keyboard focus"/>
+      <entry name="minimized" value="2" summary="every window in this slot is minimized"/>
+    </enum>
+
+    <event name="slot">
+      <description summary="state of one task bar slot">
+        Sent for every slot when the shell binds, and for slots that change
+        afterwards; a done event follows each batch.
+      </description>
+      <arg name="index" type="uint" summary="slot index, 0 (F1) to 11 (F12)"/>
+      <arg name="app_id" type="string"
+           summary="desktop ID (or app_id) of the slot's most recently used app; empty if free"/>
+      <arg name="title" type="string" summary="title of the slot's most recently used window"/>
+      <arg name="pinned" type="uint" summary="1 if the slot is pinned"/>
+      <arg name="windows" type="uint" summary="number of windows in the slot"/>
+      <arg name="state" type="uint" enum="slot_state"/>
+    </event>
+
+    <event name="done">
+      <description summary="end of a batch of slot events"/>
+    </event>
+
+    <event name="show_launcher">
+      <description summary="the user asked for the launcher (Super key tap)"/>
+    </event>
+
+    <request name="destroy" type="destructor"/>
+
+    <request name="activate_slot">
+      <description summary="same as Super+F(index+1)">
+        Launches a pinned app with no windows, focuses the slot's most recent
+        window, cycles through the slot's windows, or minimizes the only,
+        already focused, window.
+      </description>
+      <arg name="index" type="uint"/>
+    </request>
+
+    <request name="launch_slot">
+      <description summary="start a new instance of the slot's app (Super+Shift+F)"/>
+      <arg name="index" type="uint"/>
+    </request>
+  </interface>
+</protocol>

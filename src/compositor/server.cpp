@@ -7,6 +7,7 @@
 #include "log.hpp"
 #include "output.hpp"
 #include "popup.hpp"
+#include "shell_protocol.hpp"
 #include "view.hpp"
 #include "xdg_view.hpp"
 #include "xwayland_view.hpp"
@@ -62,6 +63,8 @@ Server::~Server() {
     views_.clear();
     keyboards_.clear();
     outputs_.clear();
+    taskbar_.on_changed = nullptr;
+    shell_protocol_.reset();
 
     for (Listener* listener :
          {&new_output_, &new_input_, &new_toplevel_, &new_popup_, &new_layer_surface_,
@@ -145,6 +148,14 @@ std::expected<void, std::string> Server::init() {
     init_protocols();
     init_input();
     init_xwayland();
+
+    desktop_entries_.load();
+    shell_protocol_ = std::make_unique<ShellProtocol>(*this);
+    taskbar_.on_changed = [this](const Taskbar::Snapshot& snapshot) {
+        shell_protocol_->publish(snapshot);
+    };
+    taskbar_.set_pins(config_.taskbar.pinned);
+    wl_display_set_global_filter(display, &Server::filter_global, this);
 
     new_output_.connect<wlr_output>(backend->events.new_output,
                                     [this](wlr_output* output) { handle_new_output(output); });
@@ -273,6 +284,27 @@ void Server::terminate() {
     wl_display_terminate(display);
 }
 
+void Server::show_launcher() {
+    if (shell_protocol_) {
+        shell_protocol_->show_launcher();
+    }
+}
+
+bool Server::filter_global(const wl_client* client, const wl_global* global, void* data) {
+    const auto* self = static_cast<const Server*>(data);
+    auto* mutable_client = const_cast<wl_client*>(client); // NOLINT: libwayland API
+    if (self->shell_protocol_ && global == self->shell_protocol_->global()) {
+        pid_t pid = 0;
+        wl_client_get_credentials(mutable_client, &pid, nullptr, nullptr);
+        return self->shell_pid_ > 0 && pid == self->shell_pid_;
+    }
+    if (self->xwayland != nullptr && self->xwayland->shell_v1 != nullptr &&
+        global == self->xwayland->shell_v1->global) {
+        return self->xwayland->server != nullptr && client == self->xwayland->server->client;
+    }
+    return true;
+}
+
 // --- configuration -------------------------------------------------------------
 
 void Server::load_config() {
@@ -357,6 +389,9 @@ void Server::apply_config(const config::Config& previous) {
             view->update_decoration();
             view->refit();
         }
+    }
+    if (config_.taskbar != previous.taskbar) {
+        taskbar_.set_pins(config_.taskbar.pinned);
     }
     if (config_.shell != previous.shell) {
         if (shell_pid_ > 0) {

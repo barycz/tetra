@@ -22,6 +22,7 @@ public:
 
     // Keymap and repeat rate. Virtual keyboards keep their client's keymap.
     void apply_config(const config::Keyboard& config);
+    void cancel_super_tap() noexcept { super_tap_ = false; }
 
 private:
     void handle_key(const wlr_keyboard_key_event& event);
@@ -29,6 +30,7 @@ private:
     Server& server_;
     wlr_keyboard* keyboard_;
     bool is_virtual_;
+    bool super_tap_ = false; // Super pressed alone and nothing else since
 
     Listener modifiers_;
     Listener key_;

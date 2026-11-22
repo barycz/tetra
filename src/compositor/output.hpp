@@ -4,6 +4,7 @@
 #include "listener.hpp"
 #include "wlr.hpp"
 
+#include <chrono>
 #include <memory>
 #include <vector>
 
@@ -51,6 +52,7 @@ private:
     wlr_scene_rect* background_ = nullptr;
     wlr_box usable_area_{};
     std::vector<std::unique_ptr<LayerSurface>> layer_surfaces_;
+    std::chrono::steady_clock::time_point last_slow_frame_log_;
 
     Listener frame_;
     Listener request_state_;

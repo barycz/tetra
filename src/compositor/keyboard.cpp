@@ -3,6 +3,7 @@
 #include "log.hpp"
 #include "server.hpp"
 
+#include <algorithm>
 #include <memory>
 #include <span>
 
@@ -64,15 +65,25 @@ void Keyboard::apply_config(const config::Keyboard& config) {
 }
 
 void Keyboard::handle_key(const wlr_keyboard_key_event& event) {
+    const uint32_t keycode = event.keycode + 8; // libinput -> xkb
+    const xkb_keysym_t* raw_syms = nullptr;
+    const int count = xkb_state_key_get_syms(keyboard_->xkb_state, keycode, &raw_syms);
+    const auto syms = std::span(raw_syms, static_cast<std::size_t>(std::max(count, 0)));
+    const bool is_super = std::ranges::any_of(
+        syms, [](xkb_keysym_t s) { return s == XKB_KEY_Super_L || s == XKB_KEY_Super_R; });
+    const uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard_);
+
     bool handled = false;
     if (event.state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-        const uint32_t keycode = event.keycode + 8; // libinput -> xkb
-        const xkb_keysym_t* syms = nullptr;
-        const int count = xkb_state_key_get_syms(keyboard_->xkb_state, keycode, &syms);
-        const uint32_t modifiers = wlr_keyboard_get_modifiers(keyboard_);
-        for (const xkb_keysym_t sym : std::span(syms, static_cast<std::size_t>(count))) {
+        // A Super tap (press and release with nothing in between) opens the
+        // launcher, like the Windows key.
+        super_tap_ = is_super && (modifiers & ~WLR_MODIFIER_LOGO) == 0;
+        for (const xkb_keysym_t sym : syms) {
             handled = server_.handle_keybinding(modifiers, sym) || handled;
         }
+    } else if (is_super && super_tap_) {
+        super_tap_ = false;
+        server_.show_launcher();
     }
 
     if (!handled) {

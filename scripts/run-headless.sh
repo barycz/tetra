@@ -53,6 +53,8 @@ export WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_LIBINPUT_NO_DEVICES=1
 export WLR_RENDERER="${WLR_RENDERER:-gles2}"
 export TETRA_OUTPUT_SIZE="$size"
 export LSAN_OPTIONS="${LSAN_OPTIONS:-suppressions=$root/scripts/lsan.supp:print_suppressions=0}"
+# Test helpers (tetra-sendkeys) for the scenario scripts.
+export PATH="$root/build/$preset/tests/tools:$PATH"
 
 # Tests must not depend on the developer's own ~/.config/tetra.
 if [[ -z "$config" ]]; then
@@ -68,7 +70,12 @@ pid=$!
 cleanup() {
     kill -TERM "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
-    rm -rf "$runtime"
+    # D-Bus-activated helpers (document portal, gvfs) mount FUSE file
+    # systems in the runtime dir; unmount them before deleting it.
+    for mount in "$runtime/doc" "$runtime/gvfs"; do
+        fusermount3 -uz "$mount" 2>/dev/null || fusermount -uz "$mount" 2>/dev/null || true
+    done
+    rm -rf "$runtime" 2>/dev/null || true
 }
 trap cleanup EXIT
 

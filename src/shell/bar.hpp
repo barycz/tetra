@@ -3,26 +3,32 @@
 #include "app.hpp"
 #include "window.hpp"
 
+#include <cstddef>
 #include <memory>
 
 namespace tetra::shell {
 
-// The bottom bar on one output: launcher button in the centre, clock and
-// (later) tray on the right. Task slots arrive in phase 2.
+class Shell;
+struct Slot;
+
+// The bottom bar on one output. Centre: launcher button and the 12 task
+// slots in three groups of four (F1-F4, F5-F8, F9-F12). Right: tray and clock.
 class Bar {
 public:
     static constexpr int kHeight = 48;
 
-    Bar(ui::App& app, const ui::OutputInfo& output);
+    Bar(Shell& shell, const ui::OutputInfo& output);
 
     void redraw() { window_->request_redraw(); }
 
 private:
     void draw();
     void draw_launcher(float x, float y, float size);
+    void draw_slot(std::size_t index, const Slot& slot, float x, float y);
+    float draw_tray(float right, float height);
     void draw_clock(float right, float height);
 
-    ui::App& app_;
+    Shell& shell_;
     std::unique_ptr<ui::LayerWindow> window_;
 };
 

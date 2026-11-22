@@ -73,13 +73,22 @@ struct Windows {
     bool operator==(const Windows&) const = default;
 };
 
+struct Taskbar {
+    static constexpr std::size_t kMaxPins = 11; // one slot always stays free for overflow
+    // Desktop file IDs or app_ids, in slot order (Super+F1, Super+F2, ...).
+    std::vector<std::string> pinned;
+    bool operator==(const Taskbar&) const = default;
+};
+
 struct Config {
     Keyboard keyboard;
     std::vector<Output> outputs;
     Theme theme;
     Desktop desktop;
     Windows windows;
+    Taskbar taskbar;
     std::string shell = "tetra-shell"; // empty: do not start a shell
+    std::string terminal = "foot";     // for Terminal=true apps and Super+Return
     std::vector<std::string> autostart;
 
     // Settings for the named output: exact match first, then "*".

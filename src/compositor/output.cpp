@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
@@ -15,6 +16,8 @@
 namespace tetra {
 
 namespace {
+
+constexpr double kSlowFrameMs = 12;
 
 // Output size for backends without modes (headless, nested), e.g. "1920x1080".
 std::optional<config::OutputMode> env_output_size() {
@@ -203,7 +206,17 @@ void Output::render_frame() {
     if (scene_output == nullptr) {
         return;
     }
+    const auto start = std::chrono::steady_clock::now();
     wlr_scene_output_commit(scene_output, nullptr);
+    const auto end = std::chrono::steady_clock::now();
+
+    // Diagnostics: the event loop (input included) waits while a frame
+    // renders, so slow frames show up as input lag. Rate-limited.
+    const double ms = std::chrono::duration<double, std::milli>(end - start).count();
+    if (ms > kSlowFrameMs && end - last_slow_frame_log_ > std::chrono::seconds(2)) {
+        last_slow_frame_log_ = end;
+        log::info("output {}: slow frame, {:.1f} ms to render and commit", output_->name, ms);
+    }
 
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);

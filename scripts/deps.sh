@@ -23,8 +23,9 @@ packages=(
     # compositor: decorations (title text), config
     libcairo2-dev libpango1.0-dev nlohmann-json3-dev
 
-    # toolkit: fonts for ImGui
-    libfreetype-dev libfontconfig-dev fonts-inter
+    # toolkit: fonts for ImGui, icons (PNG via cairo, SVG via librsvg)
+    libfreetype-dev libfontconfig-dev fonts-inter librsvg2-dev
+    adwaita-icon-theme hicolor-icon-theme
 
     # dev/test tools: screenshots, reference terminals, X11 test apps,
     # input injection, EGL info

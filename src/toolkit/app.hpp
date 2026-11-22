@@ -90,6 +90,12 @@ public:
     void register_window(Window* window);
     void unregister_window(Window* window);
     void set_cursor(int imgui_cursor);
+    // Makes the shared GL context current (for creating/deleting textures).
+    void make_gl_current() const;
+
+    // Binds a global not handled by App (e.g. a private protocol); null if
+    // the compositor does not offer it to us.
+    void* bind_global(const wl_interface* interface, uint32_t max_version);
 
 private:
     explicit App(std::string app_id);
@@ -136,6 +142,12 @@ private:
         OutputInfo info;
     };
     std::vector<std::unique_ptr<Output>> outputs_;
+    struct Global {
+        uint32_t name;
+        std::string interface;
+        uint32_t version;
+    };
+    std::vector<Global> globals_;
 
     EGLDisplay egl_display_ = EGL_NO_DISPLAY;
     EGLConfig egl_config_ = nullptr;

@@ -44,6 +44,12 @@ the error is logged by each component.
     "border_width": 1
   },
 
+  "taskbar": {
+    // Desktop file IDs (or app_ids) for slots F1, F2, ... — at most 11.
+    "pinned": ["foot", "firefox-esr", "org.gnome.Nautilus"]
+  },
+
+  "terminal": "foot",             // Super+Return and Terminal=true apps
   "shell": "tetra-shell",         // "" to run without a shell
   "autostart": ["nm-applet", "foot --server"]
 }
@@ -68,6 +74,8 @@ the error is logged by each component.
 | `desktop.background` | colour | `"#1b1d22"` | yes |
 | `windows.titlebar_height` | integer, 16–96 | `32` | yes |
 | `windows.border_width` | integer, 0–16 | `1` | yes |
+| `taskbar.pinned` | array of desktop IDs, at most 11 | `[]` | yes (open windows stay put) |
+| `terminal` | command | `"foot"` | yes |
 | `shell` | command | `"tetra-shell"` | restarts the shell |
 | `autostart` | array of commands | `[]` | at startup only |
 
