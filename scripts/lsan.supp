@@ -1,0 +1,3 @@
+# LeakSanitizer suppressions for leaks outside tetra's control.
+# Mesa's gallium driver keeps a small per-process allocation alive at exit.
+leak:libgallium

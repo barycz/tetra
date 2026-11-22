@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Start tetra on the headless backend, run a client command inside it, take a
+# screenshot, and shut everything down. Uses a private XDG_RUNTIME_DIR, so it
+# never touches a real session.
+#
+# Usage: scripts/run-headless.sh [options] [--] [command...]
+#   -o FILE    screenshot path        (default: build/screenshots/headless.png)
+#   -s WxH     output size            (default: 1280x720)
+#   -w SECS    wait before screenshot (default: 2)
+#   -p PRESET  build preset to run    (default: debug)
+#
+# Example: scripts/run-headless.sh -- 'foot & foot -e htop'
+# The compositor log is written next to the screenshot (*.log).
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+out="$root/build/screenshots/headless.png"
+size=1280x720
+wait_secs=2
+preset=debug
+
+while getopts "o:s:w:p:h" opt; do
+    case "$opt" in
+        o) out="$OPTARG" ;;
+        s) size="$OPTARG" ;;
+        w) wait_secs="$OPTARG" ;;
+        p) preset="$OPTARG" ;;
+        *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    esac
+done
+shift $((OPTIND - 1))
+command="$*"
+
+bin="$root/build/$preset/src/compositor/tetra"
+if [[ ! -x "$bin" ]]; then
+    echo "error: $bin not found; build with: cmake --build --preset $preset" >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname "$out")"
+log="${out%.*}.log"
+runtime="$(mktemp -d /tmp/tetra-headless.XXXXXX)" # mode 0700, as XDG requires
+
+unset WAYLAND_DISPLAY DISPLAY
+export XDG_RUNTIME_DIR="$runtime"
+export WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_LIBINPUT_NO_DEVICES=1
+export WLR_RENDERER="${WLR_RENDERER:-gles2}"
+export TETRA_OUTPUT_SIZE="$size"
+export LSAN_OPTIONS="${LSAN_OPTIONS:-suppressions=$root/scripts/lsan.supp:print_suppressions=0}"
+
+args=()
+[[ -n "$command" ]] && args+=(-s "$command")
+"$bin" "${args[@]}" >"$log" 2>&1 &
+pid=$!
+
+cleanup() {
+    kill -TERM "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    rm -rf "$runtime"
+}
+trap cleanup EXIT
+
+for _ in $(seq 50); do
+    [[ -S "$runtime/wayland-0" ]] && break
+    if ! kill -0 "$pid" 2>/dev/null; then
+        echo "error: tetra exited during startup; log:" >&2
+        cat "$log" >&2
+        exit 1
+    fi
+    sleep 0.1
+done
+
+sleep "$wait_secs"
+if ! WAYLAND_DISPLAY=wayland-0 grim "$out"; then
+    echo "error: screenshot failed; log tail:" >&2
+    tail -n 20 "$log" >&2
+    exit 1
+fi
+echo "$out"
