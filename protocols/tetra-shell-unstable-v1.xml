@@ -13,7 +13,7 @@
     Unstable: both sides are built from the same source tree.
   </description>
 
-  <interface name="tetra_shell_v1" version="1">
+  <interface name="tetra_shell_v1" version="2">
     <enum name="slot_state" bitfield="true">
       <entry name="focused" value="1" summary="a window in this slot has keyboard focus"/>
       <entry name="minimized" value="2" summary="every window in this slot is minimized"/>
@@ -56,5 +56,24 @@
       <description summary="start a new instance of the slot's app (Super+Shift+F)"/>
       <arg name="index" type="uint"/>
     </request>
+
+    <!-- version 2 -->
+
+    <enum name="media_key" since="2">
+      <entry name="volume_up" value="1"/>
+      <entry name="volume_down" value="2"/>
+      <entry name="mute" value="3"/>
+      <entry name="mic_mute" value="4"/>
+      <entry name="brightness_up" value="5"/>
+      <entry name="brightness_down" value="6"/>
+    </enum>
+
+    <event name="media_key" since="2">
+      <description summary="a volume or brightness key was pressed">
+        The compositor keeps these keys from applications; the shell changes
+        the volume or brightness and shows the on-screen display.
+      </description>
+      <arg name="key" type="uint" enum="media_key"/>
+    </event>
   </interface>
 </protocol>

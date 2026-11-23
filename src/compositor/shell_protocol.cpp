@@ -9,7 +9,7 @@
 namespace tetra {
 
 namespace {
-constexpr int kVersion = 1;
+constexpr int kVersion = 2;
 }
 
 struct ShellProtocolImpl {
@@ -102,6 +102,17 @@ void ShellProtocol::show_launcher() {
     for (wl_resource* resource : resources_) {
         tetra_shell_v1_send_show_launcher(resource);
     }
+}
+
+bool ShellProtocol::media_key(uint32_t key) {
+    bool sent = false;
+    for (wl_resource* resource : resources_) {
+        if (wl_resource_get_version(resource) >= TETRA_SHELL_V1_MEDIA_KEY_SINCE_VERSION) {
+            tetra_shell_v1_send_media_key(resource, key);
+            sent = true;
+        }
+    }
+    return sent;
 }
 
 } // namespace tetra

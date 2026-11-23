@@ -14,6 +14,16 @@ std::unique_ptr<DBusConnection> DBusConnection::session(App& app) {
     }
 }
 
+std::unique_ptr<DBusConnection> DBusConnection::system(App& app) {
+    try {
+        return std::unique_ptr<DBusConnection>(
+            new DBusConnection(app, sdbus::createSystemBusConnection()));
+    } catch (const sdbus::Error& e) {
+        std::println(stderr, "{}: no D-Bus system bus: {}", app.app_id(), e.getMessage());
+        return nullptr;
+    }
+}
+
 DBusConnection::DBusConnection(App& app, std::unique_ptr<sdbus::IConnection> connection)
     : app_(app), connection_(std::move(connection)) {
     source_ = app_.add_source(

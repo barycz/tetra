@@ -14,6 +14,8 @@ class DBusConnection {
 public:
     // The session bus; null (with a message on stderr) if there is none.
     static std::unique_ptr<DBusConnection> session(App& app);
+    // The system bus (logind, UPower, NetworkManager, polkit); null if none.
+    static std::unique_ptr<DBusConnection> system(App& app);
     ~DBusConnection();
 
     DBusConnection(const DBusConnection&) = delete;

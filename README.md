@@ -7,7 +7,8 @@ controls and configuration. See [docs/design.md](docs/design.md).
 Status: phase 2 — compositor with server-side decorations, layer-shell and
 Xwayland; ImGui toolkit; `tetra-shell` with the F-key task bar (12 slots in
 groups of four), app launcher, network/battery indicators and clock;
-desktop notifications (`notify-send` works); one JSON configuration with live
+desktop notifications (`notify-send` works); volume control in the tray and
+a volume/brightness OSD for the media keys; one JSON configuration with live
 reload ([docs/config.md](docs/config.md)). Phase 3 (shell services) in progress.
 
 ## Building (Debian 13)
@@ -75,6 +76,9 @@ printf '[Desktop Entry]\nName=tetra (dev build)\nExec=%s\nType=Application\n' \
 | Super+Return | open a terminal (`terminal` in the config, foot by default) |
 | Super+Shift+Escape | quit tetra |
 | Ctrl+Alt+F1…F12 | switch VT |
+| Volume / mute / mic-mute keys | change the volume (OSD); also the wheel over the tray speaker |
+| Brightness keys | change the backlight (OSD) |
+| Click the tray speaker | volume popup: mute button and slider |
 
 Pin apps to slots with `taskbar.pinned` in `~/.config/tetra/config.json`.
 
@@ -84,7 +88,7 @@ Pin apps to slots with `taskbar.pinned` in `~/.config/tetra/config.json`.
 src/core/         config, theme palette, desktop entries, process spawning (shared)
 src/compositor/   the compositor (binary: tetra), incl. the task bar slot model
 src/toolkit/      ImGui-on-Wayland toolkit for the shell and apps (incl. icons)
-src/shell/        tetra-shell: bar, launcher, tray
+src/shell/        tetra-shell: bar, launcher, tray, notifications, volume/OSD
 protocols/        tetra's private Wayland protocol (compositor <-> shell)
 scripts/          deps, vendored build, headless runner, test runner
 tests/headless/   scripted headless scenarios

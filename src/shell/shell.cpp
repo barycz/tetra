@@ -3,6 +3,7 @@
 #include "bar.hpp"
 #include "launcher.hpp"
 #include "process.hpp"
+#include "volume_popup.hpp"
 
 #include "tetra-shell-unstable-v1-protocol.h"
 
@@ -55,13 +56,24 @@ const tetra_shell_v1_listener ShellListener::listener = {
     .show_launcher = [](void* data, tetra_shell_v1* /*shell*/) {
         static_cast<Shell*>(data)->toggle_launcher();
     },
+    .media_key = [](void* data, tetra_shell_v1* /*shell*/,
+                    uint32_t key) { static_cast<Shell*>(data)->handle_media_key(key); },
 };
 
 Shell::Shell(ui::App& app) : app_(app), icons_(app) {
     applications_.load();
     tray_.refresh();
 
-    protocol_ = static_cast<tetra_shell_v1*>(app_.bind_global(&tetra_shell_v1_interface, 1));
+    audio_ = std::make_unique<Audio>(app_);
+    audio_->on_changed = [this] {
+        redraw_bars();
+        if (volume_popup_) {
+            volume_popup_->redraw();
+        }
+    };
+    osd_ = std::make_unique<Osd>(*this);
+
+    protocol_ = static_cast<tetra_shell_v1*>(app_.bind_global(&tetra_shell_v1_interface, 2));
     if (protocol_ != nullptr) {
         tetra_shell_v1_add_listener(protocol_, &ShellListener::listener, this);
     } else {
@@ -82,6 +94,8 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
             std::println(stderr, "tetra-shell: notifications disabled: {}", e.what());
         }
     }
+    system_bus_ = ui::DBusConnection::system(app_);
+    brightness_ = std::make_unique<Brightness>(system_bus_ ? &system_bus_->connection() : nullptr);
 
     schedule_clock_tick();
     schedule_tray_refresh();
@@ -89,12 +103,84 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
 
 Shell::~Shell() {
     notifications_.reset();
+    brightness_.reset();
+    system_bus_.reset();
     dbus_.reset();
+    osd_.reset();
+    volume_popup_.reset();
     launcher_.reset();
     bars_.clear();
+    audio_.reset();
     if (protocol_ != nullptr) {
         tetra_shell_v1_destroy(protocol_);
     }
+}
+
+const char* Shell::volume_icon(const Audio::State& state) {
+    if (!state.available || state.muted || state.volume < 0.005F) {
+        return "audio-volume-muted-symbolic";
+    }
+    if (state.volume < 0.34F) {
+        return "audio-volume-low-symbolic";
+    }
+    return state.volume < 0.67F ? "audio-volume-medium-symbolic" : "audio-volume-high-symbolic";
+}
+
+void Shell::step_volume(float delta) {
+    if (!audio_->state().available) {
+        return;
+    }
+    audio_->change_volume(delta);
+    const Audio::State& state = audio_->state();
+    osd_->show(volume_icon(state), state.volume, state.muted);
+}
+
+void Shell::handle_media_key(uint32_t key) {
+    constexpr float kStep = 0.05F;
+    switch (key) {
+    case TETRA_SHELL_V1_MEDIA_KEY_VOLUME_UP:
+        step_volume(kStep);
+        break;
+    case TETRA_SHELL_V1_MEDIA_KEY_VOLUME_DOWN:
+        step_volume(-kStep);
+        break;
+    case TETRA_SHELL_V1_MEDIA_KEY_MUTE:
+        if (audio_->state().available) {
+            audio_->toggle_mute();
+            const Audio::State& state = audio_->state();
+            osd_->show(volume_icon(state), state.volume, state.muted);
+        }
+        break;
+    case TETRA_SHELL_V1_MEDIA_KEY_MIC_MUTE:
+        audio_->toggle_mic_mute();
+        break;
+    case TETRA_SHELL_V1_MEDIA_KEY_BRIGHTNESS_UP:
+    case TETRA_SHELL_V1_MEDIA_KEY_BRIGHTNESS_DOWN:
+        if (brightness_ && brightness_->available()) {
+            const float level =
+                brightness_->change(key == TETRA_SHELL_V1_MEDIA_KEY_BRIGHTNESS_UP ? kStep : -kStep);
+            osd_->show("display-brightness-symbolic", level, false);
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+void Shell::toggle_volume_popup() {
+    if (volume_popup_) {
+        hide_volume_popup();
+        return;
+    }
+    volume_popup_ = std::make_unique<VolumePopup>(*this);
+}
+
+void Shell::hide_volume_popup() {
+    if (!volume_popup_) {
+        return;
+    }
+    std::shared_ptr<VolumePopup> closing(std::move(volume_popup_));
+    app_.add_timer(milliseconds(0), [closing] {});
 }
 
 void Shell::resolve(Slot& slot) const {

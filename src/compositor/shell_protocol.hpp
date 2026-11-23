@@ -25,6 +25,9 @@ public:
 
     void publish(const Taskbar::Snapshot& snapshot);
     void show_launcher();
+    // Forwards a volume/brightness key (tetra_shell_v1.media_key); false if
+    // no shell can take it.
+    bool media_key(uint32_t key);
 
 private:
     static void bind(wl_client* client, void* data, uint32_t version, uint32_t id);

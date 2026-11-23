@@ -5,11 +5,15 @@
 #include "layer_surface.hpp"
 #include "log.hpp"
 #include "server.hpp"
+#include "shell_protocol.hpp"
+
+#include "tetra-shell-unstable-v1-protocol.h"
 #include "view.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 
 namespace tetra {
 
@@ -266,6 +270,27 @@ void Server::flush_pointer_motion() {
     wlr_seat_pointer_notify_frame(seat);
 }
 
+void Server::schedule_pointer_refocus() {
+    if (refocus_idle_ != nullptr || terminating_) {
+        return;
+    }
+    auto refocus = [](void* data) {
+        auto* self = static_cast<Server*>(data);
+        self->refocus_idle_ = nullptr;
+        // Never steal focus in the middle of a drag or a decoration press.
+        if (self->grab_.mode != GrabMode::None || self->seat->pointer_state.button_count > 0) {
+            return;
+        }
+        timespec now{};
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        self->pending_motion_time_ =
+            static_cast<uint32_t>((now.tv_sec * 1000) + (now.tv_nsec / 1'000'000));
+        self->motion_pending_ = true;
+        self->flush_pointer_motion();
+    };
+    refocus_idle_ = wl_event_loop_add_idle(wl_display_get_event_loop(display), refocus, this);
+}
+
 void Server::handle_cursor_button(const wlr_pointer_button_event& event) {
     if (event.state == WL_POINTER_BUTTON_STATE_RELEASED) {
         const bool consumed = consumed_press_;
@@ -436,6 +461,36 @@ bool Server::handle_keybinding(uint32_t modifiers, xkb_keysym_t sym) {
             wlr_session_change_vt(session, sym - XKB_KEY_XF86Switch_VT_1 + 1);
         }
         return true;
+    }
+
+    // Volume and brightness keys go to the shell (which owns the OSD),
+    // whatever modifiers are held.
+    uint32_t media_key = 0;
+    switch (sym) {
+    case XKB_KEY_XF86AudioRaiseVolume:
+        media_key = TETRA_SHELL_V1_MEDIA_KEY_VOLUME_UP;
+        break;
+    case XKB_KEY_XF86AudioLowerVolume:
+        media_key = TETRA_SHELL_V1_MEDIA_KEY_VOLUME_DOWN;
+        break;
+    case XKB_KEY_XF86AudioMute:
+        media_key = TETRA_SHELL_V1_MEDIA_KEY_MUTE;
+        break;
+    case XKB_KEY_XF86AudioMicMute:
+        media_key = TETRA_SHELL_V1_MEDIA_KEY_MIC_MUTE;
+        break;
+    case XKB_KEY_XF86MonBrightnessUp:
+        media_key = TETRA_SHELL_V1_MEDIA_KEY_BRIGHTNESS_UP;
+        break;
+    case XKB_KEY_XF86MonBrightnessDown:
+        media_key = TETRA_SHELL_V1_MEDIA_KEY_BRIGHTNESS_DOWN;
+        break;
+    default:
+        break;
+    }
+    if (media_key != 0) {
+        // Without a shell to handle it, let applications have the key.
+        return shell_protocol_ && shell_protocol_->media_key(media_key);
     }
 
     // Built-in bindings; configurable bindings come with the task bar.

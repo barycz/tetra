@@ -86,6 +86,9 @@ Server::~Server() {
     if (motion_timer_ != nullptr) {
         wl_event_source_remove(motion_timer_);
     }
+    if (refocus_idle_ != nullptr) {
+        wl_event_source_remove(refocus_idle_);
+    }
     if (stats_timer_ != nullptr) {
         wl_event_source_remove(stats_timer_);
     }

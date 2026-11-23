@@ -152,6 +152,9 @@ private:
     void handle_cursor_motion(uint32_t time_msec);
     // Sends coalesced pointer motion (if any) to the client under the cursor.
     void flush_pointer_motion();
+    // Re-targets pointer focus once the surface stack changed under a still
+    // cursor (a popup mapped over it, a window went away). Runs when idle.
+    void schedule_pointer_refocus();
     [[nodiscard]] std::chrono::microseconds motion_interval() const;
     void handle_cursor_button(const wlr_pointer_button_event& event);
     void handle_decoration_press(View& view, const Decoration::Hit& hit, uint32_t time_msec);
@@ -200,6 +203,7 @@ private:
 
     // Pointer motion coalescing (see handle_cursor_motion).
     wl_event_source* motion_timer_ = nullptr;
+    wl_event_source* refocus_idle_ = nullptr;
     bool motion_pending_ = false;
     uint32_t pending_motion_time_ = 0;
     std::chrono::steady_clock::time_point last_motion_flush_;

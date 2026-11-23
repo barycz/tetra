@@ -95,6 +95,7 @@ void Server::update_layer_focus() {
 
 void Server::handle_layer_mapped(LayerSurface& /*surface*/) {
     update_layer_focus();
+    schedule_pointer_refocus();
 }
 
 void Server::handle_layer_unmapped(LayerSurface& surface) {
@@ -103,6 +104,7 @@ void Server::handle_layer_unmapped(LayerSurface& surface) {
     }
     update_layer_focus();
     restore_keyboard_focus();
+    schedule_pointer_refocus();
 }
 
 void Server::handle_layer_changed(LayerSurface& surface) {
@@ -194,9 +196,11 @@ View* first_visible(const std::vector<View*>& order) {
 void Server::handle_view_mapped(View& view) {
     taskbar_.add_view(view);
     focus_view(&view);
+    schedule_pointer_refocus();
 }
 
 void Server::handle_view_unmapped(View& view) {
+    schedule_pointer_refocus();
     taskbar_.remove_view(view);
     std::erase(focus_order_, &view);
     if (hovered_view_ == &view) {
@@ -219,6 +223,7 @@ void Server::handle_view_unmapped(View& view) {
 }
 
 void Server::handle_view_minimized(View& view) {
+    schedule_pointer_refocus();
     if (!view.minimized() || focused_view_ != &view) {
         taskbar_.update();
         return;

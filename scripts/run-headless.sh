@@ -71,6 +71,10 @@ dbus_info="$(dbus-daemon --session --fork --print-address=1 --print-pid=1 \
     --address="unix:path=$runtime/bus")"
 export DBUS_SESSION_BUS_ADDRESS="$(sed -n 1p <<<"$dbus_info")"
 dbus_pid="$(sed -n 2p <<<"$dbus_info")"
+# The system bus too (brightness goes through logind), and a simulated
+# sound device instead of the real PulseAudio/PipeWire server.
+export DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"
+export TETRA_AUDIO=fake
 
 "$bin" "${args[@]}" >"$log" 2>&1 &
 pid=$!

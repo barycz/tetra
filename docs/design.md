@@ -82,8 +82,8 @@ Bluetooth (BlueZ), notifications, plus **StatusNotifierItem** icons for
 third-party apps (Steam, Discord, …).
 
 Phase 2 reads network and battery state from sysfs (`/sys/class/net`,
-`/sys/class/power_supply`) every 5 s; the D-Bus services, volume and
-Bluetooth arrive with phase 3.
+`/sys/class/power_supply`) every 5 s. Volume arrived in phase 3 (left to
+right: network, volume, battery); the D-Bus services and Bluetooth follow.
 
 ## Architecture
 
@@ -263,8 +263,8 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
 - In a real session (not headless or nested) the compositor runs
   `dbus-update-activation-environment --systemd` so D-Bus/systemd-activated
   services (portals, notification actions) find the display.
-  `scripts/run-headless.sh` starts a private session bus so tests never touch
-  the services of a real session.
+  `scripts/run-headless.sh` starts a private bus (used as both session and
+  system bus) so tests never touch the services of a real session.
 - **Notifications**: tetra-shell owns `org.freedesktop.Notifications`
   (spec 1.2: replaces_id, actions, urgency, expire timeouts, app icon,
   image-path and image-data, desktop-entry). Popups stack at the bottom-right
@@ -273,6 +273,26 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   hovering pauses expiry. Clicking a card runs its "default" action or
   dismisses it. Not yet: a notification centre/history, do-not-disturb,
   sounds, body markup.
+- **Media keys and OSD**: the compositor intercepts XF86AudioRaiseVolume /
+  LowerVolume / Mute / MicMute and XF86MonBrightnessUp / Down (before any
+  client sees them) and forwards them as `tetra_shell_v1.media_key`
+  (protocol version 2). The shell applies them and shows a small OSD at the
+  bottom centre (icon, level bar, percentage; 1.5 s; greyed out when muted).
+  Steps are 5 %.
+- **Volume**: libpulse (threaded mainloop), which works against both
+  PulseAudio and PipeWire's pipewire-pulse. It follows the default sink and
+  reconnects every 5 s if the server goes away. State is handed to the UI
+  thread through an eventfd. The tray speaker opens a popup (device, mute
+  button, slider) and the mouse wheel over it steps the volume. Under
+  `TETRA_AUDIO=fake` (set by `run-headless.sh`), an in-memory device
+  replaces the server.
+- **Brightness**: reads `/sys/class/backlight/*` and writes through logind's
+  `Session.SetBrightness` on the system bus, so no udev rule or setuid
+  helper is needed. With no backlight (VMs, desktops) the keys do nothing.
+- **Pointer refocus**: when a surface maps, unmaps or is minimized under a
+  stationary cursor, the compositor re-runs pointer focus on idle, so the
+  surface now under the cursor gets enter/leave without waiting for the
+  next mouse move. It skips this while a button is held.
 
 ## Development workflow
 
@@ -301,7 +321,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
 2. **Task bar** — private protocol, F-key slots, launcher, basic tray.
    *(done; window-list popup, tooltips and pinning from the UI pending)*
 3. **Shell services** — notifications, OSD, lock/idle, polkit agent, screenshots, SNI tray.
-   *(in progress: D-Bus layer and notifications done)*
+   *(in progress: D-Bus layer, notifications and volume/brightness OSD done)*
 4. **Settings app.**
 5. **Apps and portal** — terminal, system monitor, portal backend.
 6. **Final pieces** — greeter, animations, polish.

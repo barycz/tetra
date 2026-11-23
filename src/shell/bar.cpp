@@ -231,6 +231,29 @@ float Bar::draw_tray(float right, float height) {
     if (!state.battery_icon.empty()) {
         draw_icon(state.battery_icon);
     }
+
+    // Volume: click opens the popup, the wheel steps the level.
+    {
+        constexpr float kPad = 6;
+        const float button_w = kTrayIconSize + (2 * kPad);
+        const float button_h = height - 12;
+        const float bx = x - kTrayIconSize - kPad;
+        const float by = std::round((height - button_h) / 2);
+        ImGui::SetCursorPos({bx, by});
+        if (ImGui::InvisibleButton("##volume", {button_w, button_h})) {
+            shell_.toggle_volume_popup();
+        }
+        if (ImGui::IsItemHovered()) {
+            dl->AddRectFilled({bx, by}, {bx + button_w, by + button_h},
+                              ui::to_imu32(ImGui::IsItemActive() ? p.pressed : p.hover), 6);
+            const float wheel = ImGui::GetIO().MouseWheel;
+            if (wheel != 0) {
+                shell_.step_volume(wheel > 0 ? 0.05F : -0.05F);
+            }
+        }
+        draw_icon(Shell::volume_icon(shell_.audio().state()));
+    }
+
     draw_icon(state.network_icon);
     return x;
 }
