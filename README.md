@@ -35,7 +35,9 @@ scripts/run-tests.sh        # every scenario under ASan/UBSan
 ```
 
 `tests/bench/pointer-load.sh` measures compositor and app CPU while the
-pointer sweeps over an app (`-w 25`, see the script header).
+pointer sweeps over an app (`-w 25`, see the script header);
+`tetra-pointer-storm RATE SECONDS CX CY RADIUS` (in `build/<preset>/tests/tools`)
+sends absolute pointer motion at a fixed rate, like a VM tablet or a 1000 Hz mouse.
 
 **Nested** in an existing Wayland session (opens as a window):
 

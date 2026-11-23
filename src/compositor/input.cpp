@@ -37,14 +37,32 @@ void Server::init_input() {
             wlr_cursor_warp_absolute(cursor, &event->pointer->base, event->x, event->y);
             handle_cursor_motion(event->time_msec);
         });
-    cursor_button_.connect<wlr_pointer_button_event>(
-        cursor->events.button, [this](auto* event) { handle_cursor_button(*event); });
+    cursor_button_.connect<wlr_pointer_button_event>(cursor->events.button, [this](auto* event) {
+        flush_pointer_motion(); // clients must see where the click happens
+        handle_cursor_button(*event);
+        pointer_frame_pending_ = true;
+    });
     cursor_axis_.connect<wlr_pointer_axis_event>(cursor->events.axis, [this](auto* event) {
+        flush_pointer_motion();
         wlr_seat_pointer_notify_axis(seat, event->time_msec, event->orientation, event->delta,
                                      event->delta_discrete, event->source,
                                      event->relative_direction);
+        pointer_frame_pending_ = true;
     });
-    cursor_frame_.connect(cursor->events.frame, [this] { wlr_seat_pointer_notify_frame(seat); });
+    cursor_frame_.connect(cursor->events.frame, [this] {
+        // Motion-only frames are sent by flush_pointer_motion() instead.
+        if (pointer_frame_pending_) {
+            pointer_frame_pending_ = false;
+            wlr_seat_pointer_notify_frame(seat);
+        }
+    });
+    motion_timer_ = wl_event_loop_add_timer(
+        wl_display_get_event_loop(display),
+        [](void* data) {
+            static_cast<Server*>(data)->flush_pointer_motion();
+            return 0;
+        },
+        this);
 
     new_input_.connect<wlr_input_device>(
         backend->events.new_input, [this](wlr_input_device* device) { handle_new_input(device); });
@@ -180,6 +198,7 @@ void Server::set_hovered_decoration(View* view, Decoration::Part part) {
 }
 
 void Server::handle_cursor_motion(uint32_t time_msec) {
+    ++stats_pointer_events_;
     switch (grab_.mode) {
     case GrabMode::PendingMove:
         if (std::hypot(cursor->x - grab_.x, cursor->y - grab_.y) >= kDragThreshold) {
@@ -198,17 +217,53 @@ void Server::handle_cursor_motion(uint32_t time_msec) {
         break;
     }
 
+    // The cursor image already moved (wlr_cursor_move); clients get at most
+    // one motion per display refresh, with the latest position. Pointing
+    // devices can report at up to 1000 Hz (VM tablets, gaming mice), and
+    // apps like Firefox hit-test and repaint for every event they receive.
+    pending_motion_time_ = time_msec;
+    if (motion_pending_) {
+        return; // a flush is already scheduled
+    }
+    motion_pending_ = true;
+    const auto since = std::chrono::steady_clock::now() - last_motion_flush_;
+    const auto interval = motion_interval();
+    if (since >= interval) {
+        flush_pointer_motion();
+        return;
+    }
+    const auto wait = std::chrono::ceil<std::chrono::milliseconds>(interval - since);
+    wl_event_source_timer_update(motion_timer_, static_cast<int>(std::max<int64_t>(1, wait.count())));
+}
+
+std::chrono::microseconds Server::motion_interval() const {
+    const wlr_output* output = wlr_output_layout_output_at(output_layout, cursor->x, cursor->y);
+    const int refresh_mhz = output != nullptr && output->refresh > 0 ? output->refresh : 60000;
+    const auto frame = std::chrono::microseconds(1'000'000'000LL / refresh_mhz);
+    return std::clamp(frame, std::chrono::microseconds(4000), std::chrono::microseconds(16667));
+}
+
+void Server::flush_pointer_motion() {
+    if (!motion_pending_) {
+        return;
+    }
+    motion_pending_ = false;
+    wl_event_source_timer_update(motion_timer_, 0); // disarm
+    last_motion_flush_ = std::chrono::steady_clock::now();
+
     const Hit hit = hit_test(cursor->x, cursor->y);
     const bool on_decoration = hit.view != nullptr && hit.decoration.part != Decoration::Part::None;
     set_hovered_decoration(on_decoration ? hit.view : nullptr, hit.decoration.part);
 
     if (hit.surface != nullptr) {
         wlr_seat_pointer_notify_enter(seat, hit.surface, hit.sx, hit.sy);
-        wlr_seat_pointer_notify_motion(seat, time_msec, hit.sx, hit.sy);
+        wlr_seat_pointer_notify_motion(seat, pending_motion_time_, hit.sx, hit.sy);
+        ++stats_motions_sent_;
     } else {
         wlr_seat_pointer_clear_focus(seat);
         set_cursor_image(on_decoration ? Decoration::cursor_for(hit.decoration) : "default");
     }
+    wlr_seat_pointer_notify_frame(seat);
 }
 
 void Server::handle_cursor_button(const wlr_pointer_button_event& event) {

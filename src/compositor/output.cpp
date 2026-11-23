@@ -11,7 +11,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <format>
 #include <string_view>
+#include <utility>
 
 namespace tetra {
 
@@ -44,7 +46,16 @@ std::optional<config::OutputMode> env_output_size() {
 Output::Output(Server& server, wlr_output* wlr_output) : server_(server), output_(wlr_output) {
     wlr_output_init_render(output_, server_.allocator, server_.renderer);
 
-    frame_.connect(output_->events.frame, [this] { render_frame(); });
+    frame_.connect(output_->events.frame, [this] { handle_frame(); });
+    frame_timer_ = wl_event_loop_add_timer(
+        wl_display_get_event_loop(server_.display),
+        [](void* data) {
+            auto* self = static_cast<Output*>(data);
+            self->frame_timer_armed_ = false;
+            wlr_output_schedule_frame(self->output_); // the postponed frame
+            return 0;
+        },
+        this);
     request_state_.connect<wlr_output_event_request_state>(
         output_->events.request_state, [this](auto* event) {
             // Nested backends ask for a new mode when their window is resized.
@@ -61,6 +72,7 @@ Output::Output(Server& server, wlr_output* wlr_output) : server_(server), output
 }
 
 Output::~Output() {
+    wl_event_source_remove(frame_timer_);
     // Closing a layer surface removes it from layer_surfaces_ via its destroy handler.
     while (!layer_surfaces_.empty()) {
         wlr_layer_surface_v1_destroy(layer_surfaces_.back()->wlr());
@@ -201,11 +213,36 @@ void Output::remove_layer_surface(LayerSurface& surface) {
     arrange_layers();
 }
 
+void Output::handle_frame() {
+    // Some drivers (vmwgfx in VirtualBox) report page flips as done at once
+    // instead of at vblank, so wlroots asks for the next frame immediately.
+    // Uncapped, that renders hundreds of frames per second, and every frame
+    // invites clients to draw again (frame callbacks): Firefox repainted its
+    // page that often while hovered. Never go faster than the refresh rate.
+    // With real vblank the interval is a full period and this never triggers.
+    const auto now = std::chrono::steady_clock::now();
+    const int refresh_mhz = output_->refresh > 0 ? output_->refresh : 60000;
+    const auto period = std::chrono::nanoseconds(1'000'000'000'000LL / refresh_mhz);
+    const auto elapsed = now - last_frame_;
+    if (elapsed < period * 3 / 4) {
+        ++stats_.postponed;
+        if (!frame_timer_armed_) {
+            const auto wait = std::chrono::ceil<std::chrono::milliseconds>(period - elapsed);
+            wl_event_source_timer_update(frame_timer_, static_cast<int>(std::max<int64_t>(1, wait.count())));
+            frame_timer_armed_ = true;
+        }
+        return;
+    }
+    last_frame_ = now;
+    render_frame();
+}
+
 void Output::render_frame() {
     wlr_scene_output* scene_output = wlr_scene_get_scene_output(server_.scene, output_);
     if (scene_output == nullptr) {
         return;
     }
+    const bool drawn = wlr_scene_output_needs_frame(scene_output);
     const auto start = std::chrono::steady_clock::now();
     wlr_scene_output_commit(scene_output, nullptr);
     const auto end = std::chrono::steady_clock::now();
@@ -213,6 +250,10 @@ void Output::render_frame() {
     // Diagnostics: the event loop (input included) waits while a frame
     // renders, so slow frames show up as input lag. Rate-limited.
     const double ms = std::chrono::duration<double, std::milli>(end - start).count();
+    ++stats_.frames;
+    stats_.drawn += drawn ? 1 : 0;
+    stats_.total_ms += ms;
+    stats_.max_ms = std::max(stats_.max_ms, ms);
     if (ms > kSlowFrameMs && end - last_slow_frame_log_ > std::chrono::seconds(2)) {
         last_slow_frame_log_ = end;
         log::info("output {}: slow frame, {:.1f} ms to render and commit", output_->name, ms);
@@ -221,6 +262,15 @@ void Output::render_frame() {
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);
     wlr_scene_output_send_frame_done(scene_output, &now);
+}
+
+std::string Output::take_stats() {
+    const FrameStats s = std::exchange(stats_, {});
+    const double avg = s.frames > 0 ? s.total_ms / s.frames : 0;
+    return std::format(
+        "output {}: {} frames ({} drawn, {} postponed), avg {:.1f} ms, max {:.1f} ms, {} cursor",
+        output_->name, s.frames, s.drawn, s.postponed, avg, s.max_ms,
+        output_->hardware_cursor != nullptr ? "hardware" : "software");
 }
 
 } // namespace tetra

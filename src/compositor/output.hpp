@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace tetra {
@@ -42,7 +43,23 @@ public:
     void add_layer_surface(wlr_layer_surface_v1* layer_surface);
     void remove_layer_surface(LayerSurface& surface);
 
+    // Frame statistics since the last call, as one log line (TETRA_STATS).
+    std::string take_stats();
+
 private:
+    struct FrameStats {
+        int frames = 0;    // frames rendered
+        int drawn = 0;     // of those, frames that had damage to render
+        int postponed = 0; // frame events that came sooner than the refresh rate
+        double total_ms = 0;
+        double max_ms = 0;
+    };
+    FrameStats stats_;
+    void handle_frame();
+    wl_event_source* frame_timer_ = nullptr;
+    bool frame_timer_armed_ = false;
+    std::chrono::steady_clock::time_point last_frame_;
+
     void render_frame();
     void ensure_scene_output();
     bool set_mode(wlr_output_state& state, const config::OutputMode& mode);

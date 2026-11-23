@@ -150,6 +150,9 @@ private:
     };
     Hit hit_test(double lx, double ly);
     void handle_cursor_motion(uint32_t time_msec);
+    // Sends coalesced pointer motion (if any) to the client under the cursor.
+    void flush_pointer_motion();
+    [[nodiscard]] std::chrono::microseconds motion_interval() const;
     void handle_cursor_button(const wlr_pointer_button_event& event);
     void handle_decoration_press(View& view, const Decoration::Hit& hit, uint32_t time_msec);
     void set_hovered_decoration(View* view, Decoration::Part part);
@@ -194,6 +197,19 @@ private:
     View* last_title_click_view_ = nullptr;
     uint32_t last_title_click_time_ = 0;
     bool consumed_press_ = false; // last press went to a decoration, not a client
+
+    // Pointer motion coalescing (see handle_cursor_motion).
+    wl_event_source* motion_timer_ = nullptr;
+    bool motion_pending_ = false;
+    uint32_t pending_motion_time_ = 0;
+    std::chrono::steady_clock::time_point last_motion_flush_;
+    bool pointer_frame_pending_ = false; // button/axis sent since the last frame
+
+    // TETRA_STATS=1: one line per output and second (see log_stats).
+    void log_stats();
+    wl_event_source* stats_timer_ = nullptr;
+    int stats_pointer_events_ = 0;
+    int stats_motions_sent_ = 0;
 
     pid_t shell_pid_ = -1;
     std::chrono::steady_clock::time_point shell_started_;

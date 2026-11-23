@@ -83,6 +83,12 @@ Server::~Server() {
     if (shell_timer_ != nullptr) {
         wl_event_source_remove(shell_timer_);
     }
+    if (motion_timer_ != nullptr) {
+        wl_event_source_remove(motion_timer_);
+    }
+    if (stats_timer_ != nullptr) {
+        wl_event_source_remove(stats_timer_);
+    }
 
     if (scene != nullptr) {
         wlr_scene_node_destroy(&scene->tree.node);
@@ -182,8 +188,30 @@ std::expected<void, std::string> Server::init() {
         },
         this);
 
+    if (const char* stats = std::getenv("TETRA_STATS"); stats != nullptr && *stats == '1') { // NOLINT
+        stats_timer_ = wl_event_loop_add_timer(
+            loop,
+            [](void* data) {
+                static_cast<Server*>(data)->log_stats();
+                return 0;
+            },
+            this);
+        wl_event_source_timer_update(stats_timer_, 1000);
+    }
+
     watch_config();
     return {};
+}
+
+void Server::log_stats() {
+    for (const auto& output : outputs_) {
+        log::info("stats {}", output->take_stats());
+    }
+    log::info("stats pointer: {} events in, {} motions sent to clients", stats_pointer_events_,
+              stats_motions_sent_);
+    stats_pointer_events_ = 0;
+    stats_motions_sent_ = 0;
+    wl_event_source_timer_update(stats_timer_, 1000);
 }
 
 void Server::init_protocols() {

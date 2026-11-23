@@ -189,6 +189,13 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   vmwgfx (VMware/VirtualBox) rejects the close, so *every* GPU client —
   Xwayland, Mesa EGL apps, our own toolkit — would be refused. The check is
   skipped on that driver only. Real GPUs are unaffected.
+- `wlroots/0002-gbm-linear-only-buffers-are-linear`: on drivers without
+  modifier support (vmwgfx), GBM accepts a LINEAR-only allocation but reports
+  the modifier as INVALID; the cursor plane only lists LINEAR, so wlroots
+  rejected every cursor buffer and drew the cursor in software (a frame
+  behind the mouse: "floaty"). A buffer allocated from a LINEAR-only list is
+  now recorded as LINEAR. In VirtualBox the hardware cursor is drawn by the
+  host, like GNOME's.
 
 ## Compositor structure (phase 1)
 
@@ -208,6 +215,21 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   `Server::hit_test()` walks up from the node under the cursor.
 - The compositor starts the shell (`"shell"` in the config) and restarts it
   when it exits, backing off and giving up after 5 quick exits.
+- **Output frames are capped at the refresh rate.** vmwgfx (VirtualBox)
+  reports page flips as complete immediately instead of at vblank, so
+  wlroots requested the next frame at once: up to ~1800 frames/s, each
+  sending frame callbacks, which made Firefox (software WebRender) repaint
+  its page hundreds of times a second while hovered and starved input. A
+  frame event sooner than ¾ of the refresh period is postponed to a timer.
+  With real vblank it never triggers. `TETRA_STATS=1` logs frames, drawn,
+  postponed, frame times, hardware/software cursor and pointer rates per second.
+- **Pointer motion is coalesced**: the cursor image moves on every input
+  event, but clients get at most one `wl_pointer.motion` per refresh of the
+  output under the cursor (4–16.7 ms), always with the latest position.
+  Buttons and scrolling flush pending motion first. Devices report at up to
+  1000 Hz (VirtualBox's USB tablet follows the host mouse), and apps such as
+  Firefox hit-test and repaint per event — that made hovering a web page
+  saturate the VM's CPUs. Window move/resize grabs are not throttled.
 
 ## Toolkit structure (phase 1)
 
