@@ -295,6 +295,12 @@ std::expected<void, std::string> Server::run() {
     setenv("XDG_SESSION_TYPE", "wayland", 1);          // NOLINT(concurrency-mt-unsafe)
     log::info("running on WAYLAND_DISPLAY={}", socket);
 
+    if (session != nullptr) {
+        // Real session (not headless/nested): let D-Bus- and systemd-activated
+        // services (portals, notification actions, ...) find this display.
+        spawn("dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY "
+              "XDG_CURRENT_DESKTOP XDG_SESSION_TYPE");
+    }
     start_shell();
     for (const auto& command : config_.autostart) {
         spawn(command);

@@ -1,8 +1,10 @@
 #pragma once
 
 #include "app.hpp"
+#include "dbus.hpp"
 #include "desktop_entry.hpp"
 #include "icons.hpp"
+#include "notifications.hpp"
 #include "tray.hpp"
 
 #include <array>
@@ -74,6 +76,9 @@ private:
     std::array<Slot, kSlots> pending_; // until the next done event
     std::map<uint32_t, std::unique_ptr<Bar>> bars_; // by wl_output global
     std::unique_ptr<Launcher> launcher_;
+    // Session bus services; declared after everything they use, so they go first.
+    std::unique_ptr<ui::DBusConnection> dbus_;
+    std::unique_ptr<Notifications> notifications_;
 };
 
 } // namespace tetra::shell

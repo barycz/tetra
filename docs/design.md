@@ -255,6 +255,25 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
     `IsWindowHovered()` is false while an item in the window is active.
   - Never destroy a window from its own draw callback; defer it to a timer.
 
+## Shell services (phase 3)
+
+- **D-Bus**: sdbus-c++ 2.x, driven by the toolkit's own event loop
+  (`ui::DBusConnection` registers a poll source with `App::add_source`), so
+  handlers run on the UI thread between frames; no extra threads.
+- In a real session (not headless or nested) the compositor runs
+  `dbus-update-activation-environment --systemd` so D-Bus/systemd-activated
+  services (portals, notification actions) find the display.
+  `scripts/run-headless.sh` starts a private session bus so tests never touch
+  the services of a real session.
+- **Notifications**: tetra-shell owns `org.freedesktop.Notifications`
+  (spec 1.2: replaces_id, actions, urgency, expire timeouts, app icon,
+  image-path and image-data, desktop-entry). Popups stack at the bottom-right
+  above the bar (newest at the bottom, 4 at most) in one layer surface sized
+  to its content. Default timeout 6 s; critical ones stay until dismissed;
+  hovering pauses expiry. Clicking a card runs its "default" action or
+  dismisses it. Not yet: a notification centre/history, do-not-disturb,
+  sounds, body markup.
+
 ## Development workflow
 
 - VirtualBox VM, Debian 13, VMSVGA + 3D (Mesa SVGA3D, GLES 3.0).
@@ -282,6 +301,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
 2. **Task bar** — private protocol, F-key slots, launcher, basic tray.
    *(done; window-list popup, tooltips and pinning from the UI pending)*
 3. **Shell services** — notifications, OSD, lock/idle, polkit agent, screenshots, SNI tray.
+   *(in progress: D-Bus layer and notifications done)*
 4. **Settings app.**
 5. **Apps and portal** — terminal, system monitor, portal backend.
 6. **Final pieces** — greeter, animations, polish.

@@ -6,8 +6,9 @@ controls and configuration. See [docs/design.md](docs/design.md).
 
 Status: phase 2 — compositor with server-side decorations, layer-shell and
 Xwayland; ImGui toolkit; `tetra-shell` with the F-key task bar (12 slots in
-groups of four), app launcher, network/battery indicators and clock; one JSON
-configuration with live reload ([docs/config.md](docs/config.md)).
+groups of four), app launcher, network/battery indicators and clock;
+desktop notifications (`notify-send` works); one JSON configuration with live
+reload ([docs/config.md](docs/config.md)). Phase 3 (shell services) in progress.
 
 ## Building (Debian 13)
 

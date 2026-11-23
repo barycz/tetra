@@ -21,11 +21,15 @@ target_compile_definitions(imgui PUBLIC
 target_link_libraries(imgui PUBLIC PkgConfig::TOOLKIT_DEPS)
 
 # --- tetra toolkit ---------------------------------------------------------------------
+find_package(sdbus-c++ 2 REQUIRED)
+
 add_library(tetra_toolkit STATIC
     app.cpp
+    dbus.cpp
     icons.cpp
     keymap.cpp
     style.cpp
+    texture.cpp
     window.cpp
 )
 tetra_wayland_protocols(tetra_toolkit CLIENT
@@ -37,6 +41,6 @@ tetra_wayland_protocols(tetra_toolkit CLIENT
 )
 target_include_directories(tetra_toolkit PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(tetra_toolkit
-    PUBLIC tetra_core imgui PkgConfig::TOOLKIT_DEPS
+    PUBLIC tetra_core imgui PkgConfig::TOOLKIT_DEPS SDBusCpp::sdbus-c++
     PRIVATE tetra_warnings
 )

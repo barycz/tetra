@@ -74,11 +74,22 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
     app_.on_output_removed = [this](const ui::OutputInfo& output) { bars_.erase(output.global); };
     app_.on_config_changed = [this] { redraw_bars(); };
 
+    dbus_ = ui::DBusConnection::session(app_);
+    if (dbus_) {
+        try {
+            notifications_ = std::make_unique<Notifications>(*this, dbus_->connection());
+        } catch (const sdbus::Error& e) {
+            std::println(stderr, "tetra-shell: notifications disabled: {}", e.what());
+        }
+    }
+
     schedule_clock_tick();
     schedule_tray_refresh();
 }
 
 Shell::~Shell() {
+    notifications_.reset();
+    dbus_.reset();
     launcher_.reset();
     bars_.clear();
     if (protocol_ != nullptr) {

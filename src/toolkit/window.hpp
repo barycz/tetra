@@ -102,6 +102,12 @@ public:
         Keyboard keyboard = Keyboard::None;
         std::string name_space = "tetra";
         wl_output* output = nullptr; // null: compositor's choice
+        struct {
+            int top = 0;
+            int right = 0;
+            int bottom = 0;
+            int left = 0;
+        } margin{};
     };
 
     LayerWindow(App& app, const Options& options);
@@ -113,6 +119,9 @@ public:
     LayerWindow& operator=(LayerWindow&&) = delete;
 
     void set_exclusive_zone(int zone);
+    // Asks the compositor for a new size (applied with its next configure).
+    void set_size(int width, int height);
+    [[nodiscard]] int requested_height() const noexcept { return options_.height; }
 
     // The compositor closed the surface (e.g. its output went away).
     std::function<void()> on_closed;

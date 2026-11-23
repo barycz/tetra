@@ -64,12 +64,21 @@ fi
 args=(-c "$config")
 [[ -n "$command" ]] && args+=(-s "$command")
 ((debug)) && args+=(-d)
+
+# A private session bus: the shell under test must not take over (or
+# disturb) the services of a real session running on this machine.
+dbus_info="$(dbus-daemon --session --fork --print-address=1 --print-pid=1 \
+    --address="unix:path=$runtime/bus")"
+export DBUS_SESSION_BUS_ADDRESS="$(sed -n 1p <<<"$dbus_info")"
+dbus_pid="$(sed -n 2p <<<"$dbus_info")"
+
 "$bin" "${args[@]}" >"$log" 2>&1 &
 pid=$!
 
 cleanup() {
     kill -TERM "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
+    kill -TERM "$dbus_pid" 2>/dev/null || true
     # D-Bus-activated helpers (document portal, gvfs) mount FUSE file
     # systems in the runtime dir; unmount them before deleting it.
     for mount in "$runtime/doc" "$runtime/gvfs"; do

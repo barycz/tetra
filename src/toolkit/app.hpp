@@ -5,6 +5,7 @@
 #include "theme.hpp"
 
 #include <EGL/egl.h>
+#include <poll.h>
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
 
@@ -61,6 +62,14 @@ public:
     void cancel_timer(TimerId id);
     void watch_fd(int fd, std::function<void()> on_readable);
     void unwatch_fd(int fd);
+
+    // A source that recomputes what to poll every loop iteration (e.g. a
+    // D-Bus connection): `prepare` appends its pollfds and returns a timeout
+    // in ms (-1: none); `dispatch` runs after every poll.
+    using SourceId = uint64_t;
+    SourceId add_source(std::function<int(std::vector<pollfd>&)> prepare,
+                        std::function<void()> dispatch);
+    void remove_source(SourceId id);
 
     // --- outputs ----------------------------------------------------------------
     // Called for each output once its properties are known (also for outputs
@@ -183,6 +192,13 @@ private:
         std::function<void()> callback;
     };
     std::vector<WatchedFd> fds_;
+    struct Source {
+        SourceId id;
+        std::function<int(std::vector<pollfd>&)> prepare;
+        std::function<void()> dispatch;
+    };
+    std::vector<Source> sources_;
+    SourceId next_source_id_ = 1;
 
     // configuration
     config::Config config_;

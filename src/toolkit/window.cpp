@@ -369,6 +369,8 @@ LayerWindow::LayerWindow(App& app, const Options& options) : Window(app), option
                                    static_cast<uint32_t>(options_.height));
     zwlr_layer_surface_v1_set_anchor(layer_surface_, options_.anchor);
     zwlr_layer_surface_v1_set_exclusive_zone(layer_surface_, options_.exclusive_zone);
+    zwlr_layer_surface_v1_set_margin(layer_surface_, options_.margin.top, options_.margin.right,
+                                     options_.margin.bottom, options_.margin.left);
     zwlr_layer_surface_v1_set_keyboard_interactivity(layer_surface_,
                                                      static_cast<uint32_t>(options_.keyboard));
     zwlr_layer_surface_v1_add_listener(layer_surface_, &LayerListeners::listener, this);
@@ -383,6 +385,19 @@ void LayerWindow::set_exclusive_zone(int zone) {
     options_.exclusive_zone = zone;
     zwlr_layer_surface_v1_set_exclusive_zone(layer_surface_, zone);
     request_redraw();
+}
+
+void LayerWindow::set_size(int width, int height) {
+    if (width == options_.width && height == options_.height) {
+        return;
+    }
+    options_.width = width;
+    options_.height = height;
+    zwlr_layer_surface_v1_set_size(layer_surface_, static_cast<uint32_t>(width),
+                                   static_cast<uint32_t>(height));
+    // State requests take effect with a commit; the compositor answers with
+    // a configure, which resizes the EGL surface and redraws.
+    wl_surface_commit(surface_);
 }
 
 // --- ToplevelWindow ------------------------------------------------------------------

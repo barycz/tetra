@@ -652,6 +652,17 @@ void App::unwatch_fd(int fd) {
     std::erase_if(fds_, [&](const WatchedFd& w) { return w.fd == fd; });
 }
 
+App::SourceId App::add_source(std::function<int(std::vector<pollfd>&)> prepare,
+                              std::function<void()> dispatch) {
+    const SourceId id = next_source_id_++;
+    sources_.push_back({id, std::move(prepare), std::move(dispatch)});
+    return id;
+}
+
+void App::remove_source(SourceId id) {
+    std::erase_if(sources_, [&](const Source& s) { return s.id == id; });
+}
+
 int App::poll_timeout_ms() const {
     if (timers_.empty()) {
         return -1;
@@ -705,7 +716,15 @@ int App::run() {
         for (const auto& w : fds_) {
             pollfds.push_back({.fd = w.fd, .events = POLLIN, .revents = 0});
         }
-        const int ready = poll(pollfds.data(), pollfds.size(), poll_timeout_ms());
+        const std::size_t watched_end = pollfds.size();
+        int timeout = poll_timeout_ms();
+        for (const auto& source : sources_) {
+            const int source_timeout = source.prepare(pollfds);
+            if (source_timeout >= 0 && (timeout < 0 || source_timeout < timeout)) {
+                timeout = source_timeout;
+            }
+        }
+        const int ready = poll(pollfds.data(), pollfds.size(), timeout);
         if (ready > 0 && (pollfds[0].revents & POLLIN) != 0) {
             wl_display_read_events(display_);
         } else {
@@ -719,7 +738,7 @@ int App::run() {
             std::println(stderr, "{}: Wayland protocol error", app_id_);
             return 1;
         }
-        for (std::size_t i = 1; i < pollfds.size(); ++i) {
+        for (std::size_t i = 1; i < watched_end; ++i) {
             if ((pollfds[i].revents & POLLIN) != 0) {
                 const int fd = pollfds[i].fd;
                 auto it = std::ranges::find_if(fds_, [&](const WatchedFd& w) { return w.fd == fd; });
@@ -728,6 +747,11 @@ int App::run() {
                     callback();
                 }
             }
+        }
+        // Sources dispatch unconditionally: cheap, and they know best.
+        const auto sources = sources_; // dispatch may add or remove sources
+        for (const auto& source : sources) {
+            source.dispatch();
         }
         run_due_timers();
     }

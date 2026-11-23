@@ -27,6 +27,9 @@ packages=(
     libfreetype-dev libfontconfig-dev fonts-inter librsvg2-dev
     adwaita-icon-theme hicolor-icon-theme
 
+    # shell services: D-Bus (notifications, tray, polkit), PAM (lock screen)
+    libsdbus-c++-dev libpam0g-dev libnotify-bin
+
     # dev/test tools: screenshots, reference terminals, X11 test apps,
     # input injection, EGL info
     grim foot xterm x11-apps wlrctl mesa-utils

@@ -2,6 +2,7 @@ add_executable(tetra-shell
     bar.cpp
     launcher.cpp
     main.cpp
+    notifications.cpp
     shell.cpp
     tray.cpp
 )
