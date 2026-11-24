@@ -12,7 +12,7 @@ a volume/brightness OSD for the media keys; a lock screen (PAM) with idle
 locking, screen blanking and locking before sleep; a polkit agent (pkexec and
 friends ask for your password in a tetra dialog); screenshots (Print); app
 icons in the tray (StatusNotifierItem, with their menus); one JSON configuration with live
-reload ([docs/config.md](docs/config.md)). Phase 3 (shell services) done.
+reload ([docs/config.md](docs/config.md)). Phase 3 (shell services) done; phase 4 (Settings) in progress.
 
 ## Building (Debian 13)
 
@@ -80,6 +80,7 @@ printf '[Desktop Entry]\nName=tetra (dev build)\nExec=%s\nType=Application\n' \
 | Print | screenshot of the screen: saved to Pictures/Screenshots and copied |
 | Shift+Print, Super+Shift+S | screenshot of an area (drag; Esc cancels) |
 | Alt+Print | screenshot of the focused window |
+| Super+I | Settings |
 | Super+L | lock the screen (also after `idle.lock_after`, before sleep, `loginctl lock-session`) |
 | Super+Shift+Escape | quit tetra |
 | Ctrl+Alt+F1…F12 | switch VT |
@@ -97,7 +98,9 @@ src/compositor/   the compositor (binary: tetra), incl. the task bar slot model
 src/toolkit/      ImGui-on-Wayland toolkit for the shell and apps (incl. icons)
 src/shell/        tetra-shell: bar, launcher, tray (incl. app icons), notifications, volume/OSD,
                   lock screen, idle, polkit agent, screenshots
-data/             files installed alongside (PAM service for the lock screen)
+src/apps/         apps: settings (tetra-settings)
+data/             files installed alongside (PAM service, desktop entries)
+tests/unit/       unit tests (config editing)
 protocols/        tetra's private Wayland protocol (compositor <-> shell)
 scripts/          deps, vendored build, headless runner, test runner
 tests/headless/   scripted headless scenarios

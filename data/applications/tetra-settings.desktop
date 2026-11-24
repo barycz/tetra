@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Settings
+GenericName=tetra Settings
+Comment=Appearance, taskbar, keyboard, lock and startup
+Icon=preferences-system
+Exec=tetra-settings
+Categories=Settings;DesktopSettings;
+Keywords=preferences;configuration;theme;keyboard;taskbar;lock;
+OnlyShowIn=tetra;
+StartupWMClass=tetra-settings

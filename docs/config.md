@@ -61,6 +61,10 @@ the error is logged by each component.
 }
 ```
 
+Settings (Super+I) edits this file in place: it changes only the values you
+change and keeps your comments and layout. It leaves a file with errors
+alone until you fix it.
+
 ## Reference
 
 | Key | Type | Default | Live reload |

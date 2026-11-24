@@ -2,7 +2,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <cstdlib>
 #include <format>
 #include <fstream>
@@ -286,6 +288,14 @@ Config parse(const json& root, Reader& reader) {
 
 } // namespace
 
+std::string Color::hex() const {
+    auto byte = [](float v) { return static_cast<int>(std::lround(std::clamp(v, 0.0F, 1.0F) * 255)); };
+    if (byte(a) == 255) {
+        return std::format("#{:02x}{:02x}{:02x}", byte(r), byte(g), byte(b));
+    }
+    return std::format("#{:02x}{:02x}{:02x}{:02x}", byte(r), byte(g), byte(b), byte(a));
+}
+
 std::optional<Color> Color::parse(std::string_view text) {
     if (text.empty() || text.front() != '#') {
         return std::nullopt;
@@ -345,6 +355,13 @@ std::filesystem::path config_file() {
     return config_dir() / "config.json";
 }
 
+std::filesystem::path active_file() {
+    if (const char* env = std::getenv("TETRA_CONFIG"); env != nullptr && *env != '\0') { // NOLINT
+        return env;
+    }
+    return config_file();
+}
+
 std::expected<Config, std::string> load(const std::filesystem::path& path,
                                         std::vector<std::string>* warnings) {
     std::ifstream stream(path);
@@ -356,16 +373,24 @@ std::expected<Config, std::string> load(const std::filesystem::path& path,
     }
     std::stringstream buffer;
     buffer << stream.rdbuf();
+    auto config = parse_text(buffer.str(), warnings);
+    if (!config) {
+        return std::unexpected(std::format("{}: {}", path.string(), config.error()));
+    }
+    return config;
+}
 
+std::expected<Config, std::string> parse_text(std::string_view text,
+                                              std::vector<std::string>* warnings) {
     try {
-        const json root = json::parse(buffer.str(), nullptr, /*allow_exceptions=*/true,
+        const json root = json::parse(text, nullptr, /*allow_exceptions=*/true,
                                       /*ignore_comments=*/true);
         Reader reader(warnings);
         return parse(root, reader);
     } catch (const json::parse_error& e) {
-        return std::unexpected(std::format("{}: {}", path.string(), e.what()));
+        return std::unexpected(e.what());
     } catch (const ConfigError& e) {
-        return std::unexpected(std::format("{}: {}", path.string(), e.what()));
+        return std::unexpected(e.what());
     }
 }
 

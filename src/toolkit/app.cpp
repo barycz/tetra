@@ -25,10 +25,7 @@ namespace tetra::ui {
 namespace {
 
 std::filesystem::path config_path() {
-    if (const char* env = std::getenv("TETRA_CONFIG"); env != nullptr && *env != '\0') { // NOLINT
-        return env;
-    }
-    return config::config_file();
+    return config::active_file();
 }
 
 std::string find_font(const std::string& family) {

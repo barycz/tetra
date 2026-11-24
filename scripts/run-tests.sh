@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Runs every scenario in tests/headless/ and reports crashes and sanitizer
-# findings. Screenshots and logs go to build/screenshots/<preset>/.
+# Runs the unit tests and every scenario in tests/headless/, and reports
+# crashes and sanitizer findings. Screenshots and logs go to build/screenshots/<preset>/.
 #
 # Usage: scripts/run-tests.sh [preset]     (default: asan)
 # The screenshots still need a human (or Claude) to look at them.
@@ -14,6 +14,12 @@ mkdir -p "$out"
 cmake --build --preset "$preset" >/dev/null || { echo "build failed" >&2; exit 1; }
 
 failed=0
+if "$root/build/$preset/tests/unit/tetra-unit-tests" >"$out/unit.log" 2>&1; then
+    echo "ok    unit tests"
+else
+    echo "FAIL  unit tests - see $out/unit.log"
+    failed=1
+fi
 for test in "$root"/tests/headless/*.sh; do
     name="$(basename "$test" .sh)"
     # A scenario may ask for a longer wait with a "# wait: SECS" header line.

@@ -57,6 +57,8 @@ public:
     [[nodiscard]] View* focused_view() const noexcept { return focused_view_; }
     // Super tap: ask the shell to open its launcher.
     void show_launcher();
+    // Super+I: focus Settings, or start it.
+    void open_settings();
 
     // --- session lock and idle (server.cpp) -------------------------------------
     // Asks the shell to lock the session (Super+L, or a lock client died).
@@ -143,6 +145,9 @@ private:
 
     // processes (server.cpp)
     pid_t spawn_argv(const std::vector<std::string>& argv);
+    // `program` from the same build or install as this compositor (bin/,
+    // or src/<dir>/ in a build tree), else as given (found in PATH).
+    [[nodiscard]] static std::string locate(const std::string& program, const std::string& build_dir);
     void start_shell();
     void reap_children();
 

@@ -21,6 +21,8 @@ struct Color {
 
     // "#rgb", "#rrggbb" or "#rrggbbaa".
     static std::optional<Color> parse(std::string_view text);
+    // "#rrggbb", or "#rrggbbaa" when not opaque.
+    [[nodiscard]] std::string hex() const;
     [[nodiscard]] std::array<float, 4> rgba() const { return {r, g, b, a}; }
     // Premultiplied, as wlroots scene rects expect.
     [[nodiscard]] std::array<float, 4> premultiplied() const { return {r * a, g * a, b * a, a}; }
@@ -108,10 +110,15 @@ struct Config {
 // $XDG_CONFIG_HOME/tetra, falling back to ~/.config/tetra.
 std::filesystem::path config_dir();
 std::filesystem::path config_file();
+// The file in use: $TETRA_CONFIG (set by `tetra -c`) or config_file().
+std::filesystem::path active_file();
 
 // A missing file yields the defaults. Unknown keys are reported in `warnings`
 // but are not errors.
 std::expected<Config, std::string> load(const std::filesystem::path& path,
                                         std::vector<std::string>* warnings = nullptr);
+// The same for the file's text (errors without a file name).
+std::expected<Config, std::string> parse_text(std::string_view text,
+                                              std::vector<std::string>* warnings = nullptr);
 
 } // namespace tetra::config

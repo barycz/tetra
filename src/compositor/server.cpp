@@ -559,22 +559,40 @@ pid_t Server::spawn_argv(const std::vector<std::string>& argv) {
     return pid;
 }
 
+std::string Server::locate(const std::string& program, const std::string& build_dir) {
+    if (program.find('/') != std::string::npos) {
+        return program;
+    }
+    std::error_code ec;
+    const auto exe_dir = std::filesystem::read_symlink("/proc/self/exe", ec).parent_path();
+    if (ec) {
+        return program;
+    }
+    // Installed side by side, or in the build tree (build/src/compositor/tetra).
+    for (const auto& candidate : {exe_dir / program, exe_dir.parent_path() / build_dir / program}) {
+        if (access(candidate.c_str(), X_OK) == 0) {
+            return candidate.string();
+        }
+    }
+    return program;
+}
+
+void Server::open_settings() {
+    constexpr std::string_view kAppId = "tetra-settings";
+    for (View* view : focus_order_) {
+        if (view->app_id() == kAppId) {
+            focus_view(view);
+            return;
+        }
+    }
+    spawn_argv({locate(std::string(kAppId), "apps/settings")});
+}
+
 void Server::start_shell() {
     if (config_.shell.empty() || terminating_ || shell_pid_ > 0) {
         return;
     }
-    std::string program = config_.shell;
-    if (program.find('/') == std::string::npos) {
-        // Prefer the shell from the same build/install as this compositor.
-        std::error_code ec;
-        const auto exe_dir = std::filesystem::read_symlink("/proc/self/exe", ec).parent_path();
-        for (const auto& candidate : {exe_dir / program, exe_dir.parent_path() / "shell" / program}) {
-            if (!ec && access(candidate.c_str(), X_OK) == 0) {
-                program = candidate.string();
-                break;
-            }
-        }
-    }
+    const std::string program = locate(config_.shell, "shell");
     shell_pid_ = spawn_argv({program});
     shell_started_ = std::chrono::steady_clock::now();
     log::info("started shell {} (pid {})", program, shell_pid_);

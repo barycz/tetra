@@ -2,6 +2,7 @@ find_package(nlohmann_json 3.11 REQUIRED)
 
 add_library(tetra_core STATIC
     config.cpp
+    config_edit.cpp
     desktop_entry.cpp
     file_watcher.cpp
     process.cpp

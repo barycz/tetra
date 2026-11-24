@@ -157,6 +157,13 @@ tetra's file dialog. Xwayland is supported for legacy X11 apps.
   is turned into a `theme::Palette` in one place (`src/core/theme.cpp`), used
   by both the compositor's decorations and the ImGui style.
 - The Settings app is an editor for this file — never a second source of truth.
+  `config::Document` (`src/core/config_edit.*`) edits the text in place: setting
+  a key replaces only that value's text, or adds the member matching the
+  surrounding indentation (inline objects stay inline). Comments, order and
+  formatting elsewhere stay byte for byte. `config::edit_file` refuses to touch
+  a file that does not load, never writes a result the loader would reject,
+  and saves atomically (temporary file + rename). Unit tests:
+  `tests/unit/config_edit_test.cpp`.
 
 ## Scope
 
@@ -417,7 +424,10 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
    *(done; window-list popup, tooltips and pinning from the UI pending)*
 3. **Shell services** — notifications, OSD, lock/idle, polkit agent, screenshots, SNI tray.
    *(done; not yet tried on a real seat)*
-4. **Settings app.**
+4. **Settings app** — `tetra-settings` (Super+I, or the launcher), an editor
+   for config.json. *(in progress: pages for appearance, taskbar pins,
+   keyboard, lock & power, apps & startup, about; next: displays, mouse &
+   touchpad, sound)*
 5. **Apps and portal** — terminal, system monitor, portal backend.
 6. **Final pieces** — greeter, animations, polish.
 
@@ -433,9 +443,8 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   apps draw their own decorations.
 - Toolkit popups (xdg_popup from layer surfaces): needed for slot tooltips,
   the per-slot window list and right-click menus (pin/unpin).
-- Pinning from the UI means the shell writes `config.json`; nlohmann/json
-  drops comments, so editing must preserve the user's file (or pins move to
-  a separate state file).
+- Pinning from the bar itself (right-click a slot) could use the same
+  comment-preserving editor as Settings.
 - The desktop database is read at startup (compositor) and when the
   launcher opens (shell); watching `applications/` dirs would pick up new
   installs immediately.

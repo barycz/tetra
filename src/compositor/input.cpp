@@ -554,6 +554,10 @@ bool Server::handle_keybinding(uint32_t modifiers, xkb_keysym_t sym) {
         request_lock();
         return true;
     }
+    if (super && (sym == XKB_KEY_i || sym == XKB_KEY_I)) {
+        open_settings();
+        return true;
+    }
     // Screenshots: Print (output), Shift+Print or Super+Shift+S (region),
     // Alt+Print (window; with Alt held most layouts send Sys_Req).
     if (sym == XKB_KEY_Print || sym == XKB_KEY_Sys_Req) {
