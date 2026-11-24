@@ -2,6 +2,8 @@
 
 #include "config.hpp"
 #include "config_edit.hpp"
+#include "window_memory.hpp"
+#include "zones.hpp"
 
 #include <cstdio>
 #include <filesystem>
@@ -270,6 +272,115 @@ void mouse_and_touchpad() {
     check(config.has_value() && warnings.size() == 1 && warnings[0].contains("mouse.sped"), "unknown key warns");
 }
 
+void window_memory() {
+    using tetra::windows::Memory;
+    using tetra::windows::Place;
+    const std::vector<std::string> laptop{"eDP-1"};
+    const std::vector<std::string> docked{"eDP-1", "Dell U2720Q 1ABC"};
+    const Place left{.x = 10, .y = 20, .width = 800, .height = 600, .maximized = false};
+    const Place right{.x = 900, .y = 40, .width = 700, .height = 500, .maximized = true};
+
+    Memory memory;
+    // Slots: lowest free one, per app.
+    check(memory.claim("foot") == 0 && memory.claim("foot") == 1 && memory.claim("firefox") == 0, "claim slots");
+    memory.release("foot", 0);
+    check(memory.claim("foot") == 0, "released slot is reused");
+    check(!memory.display("foot", 0, laptop) && !memory.place("foot", 0, "eDP-1"), "nothing remembered yet");
+
+    // On the laptop, then docked on the external monitor.
+    memory.remember("foot", 0, laptop, "eDP-1", left, 100);
+    memory.remember("foot", 0, docked, "Dell U2720Q 1ABC", right, 200);
+    check(memory.display("foot", 0, docked) == "Dell U2720Q 1ABC", "docked: external");
+    check(memory.display("foot", 0, laptop) == "eDP-1", "undocked: laptop");
+    check(memory.place("foot", 0, "eDP-1") == left && memory.place("foot", 0, "Dell U2720Q 1ABC") == right,
+          "a place per display");
+    check(memory.last_place("foot", 0) == right, "last place");
+    // A new setup with the last display connected uses it.
+    const std::vector<std::string> other{"Dell U2720Q 1ABC", "HDMI-A-1"};
+    check(memory.display("foot", 0, other) == "Dell U2720Q 1ABC", "last display when setup is new");
+    check(!memory.display("foot", 0, std::vector<std::string>{"HDMI-A-1"}), "unknown displays only");
+    check(tetra::windows::setup_key(std::vector<std::string>{"b", "a"}) == "a + b", "setup key sorted");
+
+    // Round trip through the file; held slots are not saved.
+    const std::string text = memory.dump();
+    Memory loaded = Memory::parse(text);
+    check(loaded.dump() == text, "dump/parse round trip");
+    check(loaded.place("foot", 0, "eDP-1") == left && loaded.display("foot", 0, docked) == "Dell U2720Q 1ABC",
+          "loaded places");
+    check(loaded.claim("foot") == 0, "slots start free after loading");
+
+    // Bad input: nothing, or the good parts only.
+    std::string error;
+    check(Memory::parse("not json", &error).empty() && !error.empty(), "malformed file");
+    Memory partial = Memory::parse(R"({"apps": {"foot": {"windows": [
+        {"places": {"A": {"x": 1, "y": 2, "width": 0, "height": 5}, "B": {"x": 1, "y": 2, "width": 3, "height": 4}}},
+        "junk"]}, "bad": 7}})");
+    check(!partial.place("foot", 0, "A") && partial.place("foot", 0, "B") == Place{1, 2, 3, 4, false},
+          "invalid places skipped");
+
+    // Least recently used apps are forgotten past the limit.
+    Memory many;
+    for (std::size_t i = 0; i <= Memory::kMaxApps; ++i) {
+        many.remember("app" + std::to_string(i), 0, laptop, "eDP-1", left, static_cast<std::int64_t>(1000 + i));
+    }
+    check(!many.place("app0", 0, "eDP-1") && many.place("app1", 0, "eDP-1"), "oldest app forgotten");
+    // Slots past the limit are not remembered.
+    Memory slots;
+    slots.remember("foot", Memory::kMaxSlots, laptop, "eDP-1", left, 1);
+    check(slots.empty(), "slot beyond limit ignored");
+}
+
+void snap_zones() {
+    using tetra::zones::Box;
+    auto config = tetra::config::parse_text("{}");
+    check(config.has_value() && config->windows.zones == "columns-2" && config->windows.zone_gap == 8,
+          "zone defaults");
+
+    // Two columns of 1000x600 with an 8 px gap between and around them.
+    const auto two = tetra::zones::find(*config, "columns-2");
+    check(two.has_value(), "built-in layout");
+    const auto boxes = tetra::zones::place(*two, {.x = 0, .y = 0, .width = 1000, .height = 600}, 8);
+    check(boxes.size() == 2 && boxes[0] == Box{8, 8, 488, 584} && boxes[1] == Box{504, 8, 488, 584},
+          "columns with gaps");
+
+    // Picking: inside a zone, in the gap between (both), outside (none).
+    check(tetra::zones::pick(boxes, 200, 300, 16) == std::vector<std::size_t>{0}, "pick inside");
+    check(tetra::zones::pick(boxes, 500, 300, 16) == std::vector<std::size_t>{0, 1}, "pick at the edge");
+    check(tetra::zones::pick(boxes, 490, 300, 16) == std::vector<std::size_t>{0, 1}, "pick near the edge");
+    check(tetra::zones::pick(boxes, 400, 300, 16) == std::vector<std::size_t>{0}, "pick away from the edge");
+    check(tetra::zones::pick(boxes, 2000, 300, 16).empty(), "pick far outside");
+    const std::vector<std::size_t> both{0, 1};
+    check(tetra::zones::span(boxes, both) == Box{8, 8, 984, 584}, "span");
+
+    // Per display, else windows.zones; custom layouts.
+    config = tetra::config::parse_text(R"({
+      "windows": { "zones": "grid-4", "zone_layouts": { "coding": [[0, 0, 60, 100], [60, 0, 40, 100]] } },
+      "outputs": [ { "name": "DP-1", "zones": "coding" } ]
+    })");
+    check(config.has_value(), "zones config loads");
+    check(tetra::zones::layout_name(*config, "DP-1") == "coding" &&
+              tetra::zones::layout_name(*config, "HDMI-A-1") == "grid-4",
+          "layout per display");
+    const auto coding = tetra::zones::find(*config, "coding");
+    check(coding && coding->zones.size() == 2 && coding->zones[1].x == 0.6, "custom layout");
+    check(tetra::zones::all(*config).size() == tetra::zones::builtin().size() + 1, "all layouts");
+
+    auto error = [](std::string_view text) {
+        auto c = tetra::config::parse_text(text);
+        return c ? std::string() : c.error();
+    };
+    check(error(R"({"windows": {"zones": "nope"}})").contains("no layout called \"nope\""), "unknown layout");
+    check(error(R"({"outputs": [{"name": "DP-1", "zones": "nope"}]})").contains("no layout called"),
+          "unknown output layout");
+    check(error(R"({"windows": {"zone_layouts": {"grid-4": [[0, 0, 50, 50]]}}})").contains("built-in"),
+          "custom name clashes");
+    check(error(R"({"windows": {"zone_layouts": {"x": [[60, 0, 50, 100]]}}})").contains("within 0..100"),
+          "zone outside");
+    check(error(R"({"windows": {"zone_layouts": {"x": [[0, 0, 50]]}}})").contains("[x, y, width, height]"),
+          "zone shape");
+    check(error(R"({"windows": {"zone_gap": 100}})").contains("zone_gap"), "gap range");
+}
+
 int main() {
     replace_keeps_comments();
     insert_after_trailing_comment();
@@ -284,6 +395,8 @@ int main() {
     merge_elements();
     color_hex();
     mouse_and_touchpad();
+    window_memory();
+    snap_zones();
     if (failures == 0) {
         std::println("tetra-unit-tests: all passed");
     }

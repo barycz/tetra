@@ -83,6 +83,7 @@ export ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}verify_asan_link_order=0"
 export TETRA_POLKIT_HELPER="$root/tests/tools/fake-polkit-helper"
 # Screenshots land here, not in the developer's ~/Pictures.
 export XDG_PICTURES_DIR="$runtime/Pictures"
+export XDG_STATE_HOME="$runtime/state" # window memory (windows.json)
 
 # Tests must not depend on the developer's own ~/.config/tetra. Scenarios
 # may rewrite $TETRA_CONFIG while running (it reloads live).

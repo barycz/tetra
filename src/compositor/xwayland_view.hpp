@@ -30,6 +30,9 @@ protected:
     void send_minimized(bool minimized) override;
     void send_position() override;
     [[nodiscard]] wlr_box surface_geometry() const override;
+    [[nodiscard]] bool is_main_window() const override {
+        return xsurface_->parent == nullptr && !xsurface_->modal;
+    }
 
 private:
     void handle_associate();

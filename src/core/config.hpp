@@ -77,6 +77,7 @@ struct Output {
     std::optional<OutputMode> mode;
     double scale = 1.0;
     std::optional<std::pair<int, int>> position;
+    std::optional<std::string> zones; // snap zone layout; none: windows.zones
     bool operator==(const Output&) const = default;
 };
 
@@ -93,9 +94,24 @@ struct Desktop {
     bool operator==(const Desktop&) const = default;
 };
 
+// A snap zone layout of the user's own: zones as [x, y, width, height] in
+// percent of the display.
+struct ZoneLayout {
+    std::string name;
+    std::vector<std::array<double, 4>> zones;
+    bool operator==(const ZoneLayout&) const = default;
+};
+
 struct Windows {
     int titlebar_height = 32;
     int border_width = 1;
+    // Windows open where they were last (~/.local/state/tetra/windows.json).
+    bool remember_positions = true;
+    // Snap zones (Shift while dragging): the layout for displays that do not
+    // name one, the gap between zones, and layouts of the user's own.
+    std::string zones = "columns-2";
+    int zone_gap = 8;
+    std::vector<ZoneLayout> zone_layouts;
     bool operator==(const Windows&) const = default;
 };
 

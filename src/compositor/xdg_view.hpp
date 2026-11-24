@@ -32,6 +32,7 @@ protected:
     void send_maximized(bool maximized) override;
     void send_fullscreen(bool fullscreen) override;
     [[nodiscard]] wlr_box surface_geometry() const override;
+    [[nodiscard]] bool is_main_window() const override { return toplevel_->parent == nullptr; }
 
 private:
     void apply_decoration_mode();

@@ -251,6 +251,35 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   are moved, and shrunk if needed, to stay inside it. When `outputs` moves a
   display in the layout, its windows move with it; windows are fitted only
   once every display is in place.
+- **Window memory** (`src/core/window_memory.*`, `src/compositor/placement.cpp`):
+  main windows (no parent, not modal) with an app_id open where they were.
+  An app's open windows hold numbered slots (lowest free first), so two
+  foot windows come back as two places. A slot keeps a place per display
+  (content box relative to the display, size, maximized) and, per set of
+  connected displays, the display it was on, so a window returns to the
+  external monitor when it is plugged back in and to its laptop place when
+  it is not. Displays are known by make, model and serial when the monitor
+  reports a serial, else by connector. A place is recorded when a move or
+  resize ends, on (un)maximize, when the client resizes itself and when the
+  window closes; `~/.local/state/tetra/windows.json` is written a second
+  after the last change and on exit. xdg-shell windows get the remembered
+  size in their first configure; X11 windows are resized as they map, and
+  keep a position they chose themselves. Places are fitted to the usable
+  area. When the set of displays changes, open windows move to where they
+  were with that set. The compositor rereads the file if someone else
+  changes or deletes it.
+- **Snap zones** (`src/core/zones.*`, `ZoneOverlay`, input.cpp): a layout
+  is a list of zones as fractions of a display's usable area; built-ins plus
+  `windows.zone_layouts`, chosen per display (`outputs[].zones`, else
+  `windows.zones`). During an interactive move with Shift held (checked on
+  motion and on modifier changes), the zones of the display under the
+  pointer are drawn (cairo, one buffer, in a scene layer between windows and
+  the top layer; it takes no input) and the zone under the pointer, plus any
+  within 16 px, is the target; releasing the button there fits the frame
+  into it. A snapped window keeps its previous size, which comes back when
+  it is dragged out (as with maximized windows); resizing by hand forgets it.
+  Super+Left/Right step through the zones in layout order, then to the
+  display beside.
 - Scene layers, bottom to top: background, bottom, windows, top, fullscreen,
   unmanaged (X11 menus), overlay.
 - Every object that can be hit carries a `SceneDescriptor` in `node.data`;
@@ -420,8 +449,10 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   (live reload). polkit requests come from `tests/tools/polkit-request`
   (it calls the shell's agent like polkitd would); the helper is
   `tests/tools/fake-polkit-helper`, which accepts the same test password.
-  Screenshots go to a private `$XDG_PICTURES_DIR`. `tetra-pointer` gives
-  absolute moves, clicks, drags (wlrctl cannot drag) and wheel notches. wlroots releases a
+  Screenshots go to a private `$XDG_PICTURES_DIR`, window memory to a
+  private `$XDG_STATE_HOME`. `tetra-pointer` gives
+  absolute moves, clicks, drags (wlrctl cannot drag) and wheel notches;
+  `tetra-sendkeys --hold` keeps keys (Shift) down meanwhile. wlroots releases a
   virtual pointer's buttons when it goes away, so `hold` keeps running.
   `tetra-tray-item` is a StatusNotifierItem with a dbusmenu (or
   libappindicator-style with `--appindicator`). It reports what it receives
@@ -446,7 +477,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
 4. **Settings app** — `tetra-settings` (Super+I, or the launcher), an editor
    for config.json. *(in progress: pages for appearance, displays, taskbar
    pins, keyboard, mouse & touchpad, lock & power, apps & startup, about;
-   next: sound)*
+   snap zones and window memory; next: sound)*
 5. **Apps and portal** — terminal, system monitor, portal backend.
 6. **Final pieces** — greeter, animations, polish.
 

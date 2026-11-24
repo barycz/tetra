@@ -26,8 +26,9 @@ XdgView::XdgView(Server& server, wlr_xdg_toplevel* toplevel) : View(server), top
     unmap_.connect(surface->events.unmap, [this] { handle_unmap(); });
     commit_.connect(surface->events.commit, [this] {
         if (toplevel_->base->initial_commit) {
-            // 0x0 lets the client choose its initial size.
-            wlr_xdg_toplevel_set_size(toplevel_, 0, 0);
+            // The remembered size, or 0x0 to let the client choose.
+            const auto size = prepare_placement();
+            wlr_xdg_toplevel_set_size(toplevel_, size ? size->first : 0, size ? size->second : 0);
             apply_decoration_mode();
             return;
         }

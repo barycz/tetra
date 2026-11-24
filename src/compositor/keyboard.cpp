@@ -29,6 +29,7 @@ Keyboard::Keyboard(Server& server, wlr_input_device* device)
         // One seat, many keyboards: make this one current, then forward.
         wlr_seat_set_keyboard(server_.seat, keyboard_);
         wlr_seat_keyboard_notify_modifiers(server_.seat, &keyboard_->modifiers);
+        server_.handle_modifiers();
     });
     key_.connect<wlr_keyboard_key_event>(keyboard_->events.key,
                                          [this](auto* event) { handle_key(*event); });

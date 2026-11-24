@@ -47,6 +47,7 @@ const std::vector<Settings::PageInfo>& Settings::pages() {
     static const std::vector<PageInfo> list = {
         {Page::Appearance, "appearance", "Appearance", "preferences-desktop-appearance-symbolic"},
         {Page::Displays, "displays", "Displays", "video-display-symbolic"},
+        {Page::Zones, "zones", "Snap zones", "view-grid-symbolic"},
         {Page::Taskbar, "taskbar", "Taskbar", "view-app-grid-symbolic"},
         {Page::Keyboard, "keyboard", "Keyboard", "input-keyboard-symbolic"},
         {Page::Mouse, "mouse", "Mouse & touchpad", "input-mouse-symbolic"},
@@ -128,6 +129,9 @@ void Settings::draw() {
         break;
     case Page::Displays:
         page_displays();
+        break;
+    case Page::Zones:
+        page_zones();
         break;
     case Page::Taskbar:
         page_taskbar();

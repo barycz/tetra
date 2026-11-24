@@ -7,6 +7,8 @@ add_library(tetra_core STATIC
     file_watcher.cpp
     process.cpp
     theme.cpp
+    window_memory.cpp
+    zones.cpp
 )
 target_include_directories(tetra_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(tetra_core

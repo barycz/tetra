@@ -16,6 +16,7 @@ View::View(Server& server)
 }
 
 View::~View() {
+    release_slot();
     decoration_.reset();
     wlr_scene_node_destroy(&tree_->node);
 }
@@ -59,21 +60,16 @@ wlr_box View::full_area() const {
 }
 
 void View::attach_surface_tree(wlr_scene_tree* surface_tree) {
+    // At the content origin: wlroots' xdg scene tree already offsets the
+    // surface by its window geometry (client-side shadows), and X11
+    // surfaces have none.
     surface_tree_ = surface_tree;
-    sync_surface_offset();
 }
 
 void View::detach_surface_tree() {
     if (surface_tree_ != nullptr) {
         wlr_scene_node_destroy(&surface_tree_->node);
         surface_tree_ = nullptr;
-    }
-}
-
-void View::sync_surface_offset() {
-    if (surface_tree_ != nullptr) {
-        const wlr_box geo = surface_geometry();
-        wlr_scene_node_set_position(&surface_tree_->node, -geo.x, -geo.y);
     }
 }
 
@@ -99,9 +95,10 @@ void View::handle_map(bool want_maximized, bool want_fullscreen, bool place) {
     const wlr_box geo = surface_geometry();
     content_.width = geo.width;
     content_.height = geo.height;
-    sync_surface_offset();
     if (!placed_) {
-        if (place) {
+        prepare_placement(); // X11, or an app_id set late
+        const bool remembered = place && memory_display_ && apply_remembered(*memory_display_, true);
+        if (place && !remembered) {
             place_initially();
         }
         placed_ = true;
@@ -113,6 +110,12 @@ void View::handle_map(bool want_maximized, bool want_fullscreen, bool place) {
 
     if (want_fullscreen) {
         set_fullscreen(true);
+    } else if (remembered_maximized_) {
+        const wlr_box normal = *remembered_maximized_;
+        remembered_maximized_.reset();
+        if (const Output* out = server_.find_output(output())) {
+            maximize_on(*out, normal);
+        }
     } else if (want_maximized) {
         set_maximized(true);
     }
@@ -120,6 +123,7 @@ void View::handle_map(bool want_maximized, bool want_fullscreen, bool place) {
 }
 
 void View::handle_unmap() {
+    remember_place();
     mapped_ = false;
     wlr_scene_node_set_enabled(&tree_->node, false);
     server_.handle_view_unmapped(*this);
@@ -130,9 +134,12 @@ void View::handle_commit() {
     const bool resized = geo.width != content_.width || geo.height != content_.height;
     content_.width = geo.width;
     content_.height = geo.height;
-    sync_surface_offset();
     if (resized) {
         update_decoration();
+        // The client (or a finished resize) changed the size.
+        if (mapped_ && state_ == State::Normal && !server_.grabbing(*this)) {
+            remember_place();
+        }
     }
 }
 
@@ -174,7 +181,11 @@ void View::move_to(int x, int y) {
 }
 
 wlr_box View::maximized_content() const {
-    wlr_box area = usable_area();
+    return maximized_box(usable_area());
+}
+
+wlr_box View::maximized_box(const wlr_box& usable) const {
+    wlr_box area = usable;
     if (decoration_) {
         // Maximized windows keep their title bar but drop borders.
         const int title = server_.config().windows.titlebar_height;
@@ -206,6 +217,74 @@ void View::set_maximized(bool maximized) {
         configure(saved_);
     }
     update_decoration();
+    remember_place();
+}
+
+void View::snap_to(const wlr_box& zone) {
+    if (state_ == State::Fullscreen) {
+        return;
+    }
+    if (!snap_) {
+        const wlr_box& normal = state_ == State::Maximized ? saved_ : content_;
+        snap_ = Snap{.zone = zone, .width = normal.width, .height = normal.height};
+    }
+    snap_->zone = zone;
+    if (state_ == State::Maximized) {
+        state_ = State::Normal;
+        send_maximized(false);
+        update_decoration(); // normal windows have borders: the extents change
+    }
+    const wlr_box outer = frame();
+    const int left = content_.x - outer.x;
+    const int top = content_.y - outer.y;
+    const int width = std::max(1, zone.width - (outer.width - content_.width));
+    const int height = std::max(1, zone.height - (outer.height - content_.height));
+    move_to(zone.x + left, zone.y + top);
+    configure({.x = zone.x + left, .y = zone.y + top, .width = width, .height = height});
+    remember_place(); // the size follows when the client commits it
+}
+
+std::optional<std::pair<int, int>> View::unsnap() {
+    if (!snap_) {
+        return std::nullopt;
+    }
+    const std::pair size{snap_->width, snap_->height};
+    snap_.reset();
+    return size;
+}
+
+void View::maximize_on(const Output& output, const wlr_box& normal) {
+    if (state_ == State::Fullscreen) {
+        return;
+    }
+    saved_ = normal;
+    state_ = State::Maximized;
+    const wlr_box box = maximized_box(output.usable_area());
+    move_to(box.x, box.y);
+    send_maximized(true);
+    configure(box);
+    update_decoration();
+    remember_place();
+}
+
+wlr_box View::fit(wlr_box content, const wlr_box& area) const {
+    if (wlr_box_empty(&area)) {
+        return content;
+    }
+    const wlr_box outer = frame();
+    const int left = content_.x - outer.x; // decoration extents
+    const int top = content_.y - outer.y;
+    const int extra_width = outer.width - content_.width;
+    const int extra_height = outer.height - content_.height;
+    content.width = std::max(1, std::min(content.width, area.width - extra_width));
+    content.height = std::max(1, std::min(content.height, area.height - extra_height));
+    const int frame_width = content.width + extra_width;
+    const int frame_height = content.height + extra_height;
+    const int x = std::clamp(content.x - left, area.x, std::max(area.x, area.x + area.width - frame_width));
+    const int y = std::clamp(content.y - top, area.y, std::max(area.y, area.y + area.height - frame_height));
+    content.x = x + left;
+    content.y = y + top;
+    return content;
 }
 
 void View::set_fullscreen(bool fullscreen) {
@@ -265,22 +344,12 @@ void View::refit() {
         if (wlr_box_empty(&area)) {
             return;
         }
-        wlr_box outer = frame();
-        const int left = content_.x - outer.x; // decoration extents
-        const int top = content_.y - outer.y;
-        const int extra_width = outer.width - content_.width;
-        const int extra_height = outer.height - content_.height;
-        const int width = std::min(content_.width, area.width - extra_width);
-        const int height = std::min(content_.height, area.height - extra_height);
-        if (width != content_.width || height != content_.height) {
-            request_size(width, height);
-            outer.width = width + extra_width;
-            outer.height = height + extra_height;
+        const wlr_box fitted = fit(content_, area);
+        if (fitted.width != content_.width || fitted.height != content_.height) {
+            request_size(fitted.width, fitted.height);
         }
-        const int x = std::clamp(outer.x, area.x, area.x + area.width - outer.width);
-        const int y = std::clamp(outer.y, area.y, area.y + area.height - outer.height);
-        if (x != outer.x || y != outer.y) {
-            move_to(x + left, y + top);
+        if (fitted.x != content_.x || fitted.y != content_.y) {
+            move_to(fitted.x, fitted.y);
         }
     }
 }

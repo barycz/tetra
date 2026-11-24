@@ -6,6 +6,11 @@
 // Each argument is one chord: modifiers (super, shift, ctrl, alt) and at most
 // one key named as an xkb keysym (F1, Return, a, Escape, ...). A chord of
 // only modifiers taps them (e.g. "super" alone opens the launcher).
+//
+//   tetra-sendkeys --hold 3 shift &
+//
+// holds each chord down for that many seconds (run it in the background,
+// e.g. to keep Shift down while tetra-pointer drags).
 
 #include "virtual-keyboard-unstable-v1-protocol.h"
 
@@ -14,6 +19,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <print>
 #include <span>
@@ -81,9 +87,14 @@ constexpr Modifier kModifiers[] = {
 } // namespace
 
 int main(int argc, char* argv[]) {
-    const auto chords = std::span(argv, static_cast<std::size_t>(argc)).subspan(1);
+    auto chords = std::span(argv, static_cast<std::size_t>(argc)).subspan(1);
+    double hold_seconds = 0;
+    if (chords.size() >= 2 && std::string_view(chords[0]) == "--hold") {
+        hold_seconds = std::atof(chords[1]);
+        chords = chords.subspan(2);
+    }
     if (chords.empty()) {
-        std::println(stderr, "usage: tetra-sendkeys CHORD...   e.g. super+F1 super+shift+Return super");
+        std::println(stderr, "usage: tetra-sendkeys [--hold SECONDS] CHORD...   e.g. super+F1 super+shift+Return super");
         return 2;
     }
 
@@ -160,9 +171,14 @@ int main(int argc, char* argv[]) {
             zwp_virtual_keyboard_v1_modifiers(keyboard, mask, 0, 0, 0);
         }
         if (key != XKB_KEY_NoSymbol) {
-            const uint32_t code = keycode_for(keymap, key);
-            send_key(code, true);
-            send_key(code, false);
+            send_key(keycode_for(keymap, key), true);
+        }
+        if (hold_seconds > 0) {
+            wl_display_roundtrip(display);
+            std::this_thread::sleep_for(std::chrono::duration<double>(hold_seconds));
+        }
+        if (key != XKB_KEY_NoSymbol) {
+            send_key(keycode_for(keymap, key), false);
         }
         for (auto it = mods.rbegin(); it != mods.rend(); ++it) {
             send_key(keycode_for(keymap, (*it)->key), false);

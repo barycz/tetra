@@ -139,6 +139,9 @@ std::string Settings::display_members(const std::string& name, const DisplayChan
                 members.emplace_back("position",
                                      std::format("[{}, {}]", fallback->position->first, fallback->position->second));
             }
+            if (fallback->zones) {
+                members.emplace_back("zones", std::format("\"{}\"", *fallback->zones));
+            }
         }
     }
     for (const auto& [key, value] : changes) {

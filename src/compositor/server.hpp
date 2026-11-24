@@ -7,7 +7,10 @@
 #include "listener.hpp"
 #include "taskbar.hpp"
 #include "theme.hpp"
+#include "window_memory.hpp"
 #include "wlr.hpp"
+#include "zone_overlay.hpp"
+#include "zones.hpp"
 
 #include <chrono>
 #include <expected>
@@ -99,18 +102,38 @@ public:
     void handle_view_title_changed(View& view);
     void destroy_view(View& view);
 
+    // --- window memory (placement.cpp) ---------------------------------------
+    [[nodiscard]] windows::Memory& window_memory() noexcept { return window_memory_; }
+    // Saves the memory a moment later.
+    void window_memory_changed();
+    // Displays in the layout, by display_key().
+    [[nodiscard]] std::vector<std::string> display_keys() const;
+    [[nodiscard]] wlr_output* output_for_key(std::string_view key) const;
+    [[nodiscard]] wlr_output* output_at_cursor() const;
+    // True while `view` is being moved or resized with the pointer.
+    [[nodiscard]] bool grabbing(const View& view) const noexcept {
+        return (grab_.mode == GrabMode::Move || grab_.mode == GrabMode::Resize) && grab_.view == &view;
+    }
+
     // --- input (input.cpp) -----------------------------------------------------
     void begin_interactive_move(View& view);
     void begin_interactive_resize(View& view, uint32_t edges);
     bool handle_keybinding(uint32_t modifiers, xkb_keysym_t sym);
     void destroy_keyboard(Keyboard& keyboard);
     void destroy_pointer(Pointer& pointer);
+    // Modifier keys changed (Shift shows snap zones while dragging).
+    void handle_modifiers();
+
+    // --- snap zones (input.cpp) ----------------------------------------------
+    // The zones of a display, in layout coordinates (none: no layout).
+    [[nodiscard]] std::vector<zones::Box> zones_for(wlr_output* output) const;
 
     // Scene layers, bottom to top.
     struct Layers {
         wlr_scene_tree* background = nullptr;
         wlr_scene_tree* bottom = nullptr;
         wlr_scene_tree* windows = nullptr;
+        wlr_scene_tree* zones = nullptr; // snap zones while dragging
         wlr_scene_tree* top = nullptr;
         wlr_scene_tree* fullscreen = nullptr;
         wlr_scene_tree* unmanaged = nullptr; // X11 menus and tooltips
@@ -198,6 +221,12 @@ private:
         uint32_t edges = 0;
         Decoration::Part button = Decoration::Part::None;
     };
+    std::optional<wlr_box> zone_target_; // where the moved window drops (Shift held)
+    // Shows the zones under the pointer while moving with Shift held.
+    void update_zone_preview();
+    // Super+Left/Right: the previous or next zone, across displays.
+    void move_to_zone(View& view, int direction);
+    std::unique_ptr<ZoneOverlay> zone_overlay_;
 
     // Which client may see which global (shell and Xwayland-only globals).
     static bool filter_global(const wl_client* client, const wl_global* global, void* data);
@@ -217,6 +246,21 @@ private:
     void update_idle_inhibit();
     std::optional<FileWatcher> config_watcher_;
     wl_event_source* config_source_ = nullptr;
+
+    // Window memory (placement.cpp).
+    void load_window_memory();
+    void reload_window_memory();
+    void save_window_memory();
+    void schedule_display_setup_check();
+    void check_display_setup();
+    windows::Memory window_memory_;
+    std::filesystem::path window_memory_file_;
+    std::string window_memory_text_; // the file as last read or written
+    std::optional<FileWatcher> window_memory_watcher_;
+    wl_event_source* window_memory_source_ = nullptr;
+    wl_event_source* window_memory_timer_ = nullptr;
+    wl_event_source* setup_check_idle_ = nullptr;
+    std::string display_setup_; // windows::setup_key of the displays in the layout
 
     std::vector<std::unique_ptr<Output>> outputs_;
     // Displays as clients (Settings, wlr-randr) see them; read-only, since

@@ -41,7 +41,7 @@ public:
 private:
     using Edit = std::function<std::expected<void, std::string>(config::Document&)>;
 
-    enum class Page { Appearance, Displays, Taskbar, Keyboard, Mouse, Power, Apps, About };
+    enum class Page { Appearance, Displays, Zones, Taskbar, Keyboard, Mouse, Power, Apps, About };
     struct PageInfo {
         Page page;
         const char* id;
@@ -57,6 +57,9 @@ private:
     // Pages (pages.cpp).
     void page_appearance();
     void page_displays();
+    void page_zones();
+    // Snap zone layouts as thumbnails; the one clicked, if any (zones_page.cpp).
+    std::optional<std::string> layout_picker(const char* id, const std::string& current);
     void page_taskbar();
     void page_keyboard();
     void page_mouse();
@@ -108,6 +111,7 @@ private:
     std::optional<int> repeat_rate_;
     std::optional<double> mouse_speed_;
     std::optional<double> touchpad_speed_;
+    std::optional<int> zone_gap_;
     // Text being typed (fields show the config value while not focused).
     std::array<char, 256> filter_buffer_{}; // search in combos
     std::array<char, 256> accent_buffer_{};

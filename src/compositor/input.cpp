@@ -4,6 +4,7 @@
 #include "keyboard.hpp"
 #include "layer_surface.hpp"
 #include "log.hpp"
+#include "output.hpp"
 #include "pointer.hpp"
 #include "server.hpp"
 #include "session_lock.hpp"
@@ -217,6 +218,7 @@ void Server::handle_cursor_motion(uint32_t time_msec) {
     switch (grab_.mode) {
     case GrabMode::PendingMove:
         if (std::hypot(cursor->x - grab_.x, cursor->y - grab_.y) >= kDragThreshold) {
+            last_title_click_view_ = nullptr; // a drag, not the first click of a double click
             begin_interactive_move(*grab_.view);
         }
         return;
@@ -326,6 +328,11 @@ void Server::handle_cursor_button(const wlr_pointer_button_event& event) {
                     break;
                 }
             }
+        } else if (grab_.mode == GrabMode::Move && zone_target_) {
+            View* view = grab_.view;
+            const wlr_box zone = *zone_target_;
+            end_grab();
+            view->snap_to(zone);
         } else if (grab_.mode != GrabMode::None) {
             end_grab();
         }
@@ -395,7 +402,15 @@ void Server::handle_decoration_press(View& view, const Decoration::Hit& hit, uin
 }
 
 void Server::end_grab() {
+    View* moved = grab_.mode == GrabMode::Move || grab_.mode == GrabMode::Resize ? grab_.view : nullptr;
     grab_ = {};
+    zone_target_.reset();
+    if (zone_overlay_) {
+        zone_overlay_->hide();
+    }
+    if (moved != nullptr) {
+        moved->remember_place();
+    }
 }
 
 void Server::begin_interactive_move(View& view) {
@@ -412,6 +427,15 @@ void Server::begin_interactive_move(View& view) {
         view.set_maximized(false);
         view.move_to(static_cast<int>(std::lround(cursor->x - (ratio * width))),
                      static_cast<int>(std::lround(cursor->y - dy)));
+    } else if (auto size = view.unsnap()) {
+        // Out of its zone: back to the size it had before, under the
+        // pointer in the same proportion.
+        const wlr_box c = view.content();
+        const double ratio = c.width > 0 ? (cursor->x - c.x) / c.width : 0.5;
+        const double dy = cursor->y - c.y;
+        view.move_to(static_cast<int>(std::lround(cursor->x - (ratio * size->first))),
+                     static_cast<int>(std::lround(cursor->y - dy)));
+        view.request_size(size->first, size->second);
     }
     grab_ = {.mode = GrabMode::Move,
              .view = &view,
@@ -423,6 +447,7 @@ void Server::begin_interactive_resize(View& view, uint32_t edges) {
     if (view.state() != View::State::Normal) {
         return;
     }
+    view.forget_snap(); // resized by hand: its size is its own now
     const wlr_box& c = view.content();
     const double border_x = c.x + ((edges & WLR_EDGE_RIGHT) != 0 ? c.width : 0);
     const double border_y = c.y + ((edges & WLR_EDGE_BOTTOM) != 0 ? c.height : 0);
@@ -445,6 +470,107 @@ void Server::process_move() {
         y = std::max(y, area.y + (view.content().y - view.frame().y));
     }
     view.move_to(x, y);
+    update_zone_preview();
+}
+
+// --- snap zones ------------------------------------------------------------------------
+
+namespace {
+
+constexpr int kZoneSpanRadius = 16; // this close to a second zone, the window spans both
+
+} // namespace
+
+std::vector<zones::Box> Server::zones_for(wlr_output* output) const {
+    const Output* out = find_output(output);
+    if (out == nullptr) {
+        return {};
+    }
+    const auto layout = zones::find(config_, zones::layout_name(config_, output->name));
+    if (!layout) {
+        return {};
+    }
+    const wlr_box a = out->usable_area();
+    return zones::place(*layout, {.x = a.x, .y = a.y, .width = a.width, .height = a.height},
+                        config_.windows.zone_gap);
+}
+
+void Server::handle_modifiers() {
+    if (grab_.mode == GrabMode::Move) {
+        update_zone_preview();
+    }
+}
+
+void Server::update_zone_preview() {
+    wlr_keyboard* keyboard = wlr_seat_get_keyboard(seat);
+    const bool shift = keyboard != nullptr && (wlr_keyboard_get_modifiers(keyboard) & WLR_MODIFIER_SHIFT) != 0;
+    wlr_output* output = shift ? output_at_cursor() : nullptr;
+    const auto boxes = output != nullptr ? zones_for(output) : std::vector<zones::Box>{};
+    if (boxes.empty()) {
+        zone_target_.reset();
+        zone_overlay_->hide();
+        return;
+    }
+    const auto picked = zones::pick(boxes, cursor->x, cursor->y, kZoneSpanRadius);
+    if (picked.empty()) {
+        zone_target_.reset();
+    } else {
+        const zones::Box b = zones::span(boxes, picked);
+        zone_target_ = wlr_box{.x = b.x, .y = b.y, .width = b.width, .height = b.height};
+    }
+    zone_overlay_->show(output, boxes, picked);
+}
+
+void Server::move_to_zone(View& view, int direction) {
+    if (view.state() == View::State::Fullscreen) {
+        return;
+    }
+    wlr_output* output = view.output();
+    auto boxes = zones_for(output);
+    if (boxes.empty()) {
+        return;
+    }
+    auto as_box = [](const zones::Box& b) { return wlr_box{.x = b.x, .y = b.y, .width = b.width, .height = b.height}; };
+    // Its zone now: the one it was snapped to (the first or last of a span),
+    // or none.
+    std::optional<std::size_t> current;
+    if (const auto snapped = view.snapped_zone()) {
+        for (std::size_t i = 0; i < boxes.size(); ++i) {
+            const wlr_box b = as_box(boxes[i]);
+            const bool covered = b.x >= snapped->x && b.y >= snapped->y &&
+                                 b.x + b.width <= snapped->x + snapped->width &&
+                                 b.y + b.height <= snapped->y + snapped->height;
+            if (covered) {
+                if (!current || direction > 0) {
+                    current = i; // last covered zone going right, first going left
+                }
+            }
+        }
+    }
+    std::optional<std::size_t> next;
+    if (!current) {
+        next = direction < 0 ? 0 : boxes.size() - 1;
+    } else if (direction < 0 && *current > 0) {
+        next = *current - 1;
+    } else if (direction > 0 && *current + 1 < boxes.size()) {
+        next = *current + 1;
+    } else {
+        // Past the last zone: on to the display on that side.
+        wlr_box box{};
+        wlr_output_layout_get_box(output_layout, output, &box);
+        wlr_output* beside = wlr_output_layout_adjacent_output(
+            output_layout, direction < 0 ? WLR_DIRECTION_LEFT : WLR_DIRECTION_RIGHT, output,
+            box.x + (box.width / 2.0), box.y + (box.height / 2.0));
+        if (beside == nullptr) {
+            return;
+        }
+        boxes = zones_for(beside);
+        if (boxes.empty()) {
+            return;
+        }
+        next = direction < 0 ? boxes.size() - 1 : 0;
+    }
+    view.snap_to(as_box(boxes[*next]));
 }
 
 void Server::process_resize() {
@@ -599,6 +725,12 @@ bool Server::handle_keybinding(uint32_t modifiers, xkb_keysym_t sym) {
     if (alt && sym == XKB_KEY_F4) {
         if (focused_view_ != nullptr) {
             focused_view_->close();
+        }
+        return true;
+    }
+    if (super && (sym == XKB_KEY_Left || sym == XKB_KEY_Right)) {
+        if (focused_view_ != nullptr) {
+            move_to_zone(*focused_view_, sym == XKB_KEY_Left ? -1 : 1);
         }
         return true;
     }

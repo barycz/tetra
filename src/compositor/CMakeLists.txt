@@ -9,6 +9,7 @@ add_executable(tetra
     layer_surface.cpp
     main.cpp
     output.cpp
+    placement.cpp
     pointer.cpp
     popup.cpp
     server.cpp
@@ -19,6 +20,7 @@ add_executable(tetra
     wm.cpp
     xdg_view.cpp
     xwayland_view.cpp
+    zone_overlay.cpp
 )
 
 # wlr_layer_shell_v1.h includes the generated server header.

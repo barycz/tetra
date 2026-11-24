@@ -17,6 +17,22 @@
 
 namespace tetra {
 
+std::string display_key(const wlr_output* output) {
+    if (output->serial == nullptr || *output->serial == '\0') {
+        return output->name;
+    }
+    std::string key;
+    for (const char* part : {output->make, output->model, output->serial}) {
+        if (part != nullptr && *part != '\0') {
+            if (!key.empty()) {
+                key += ' ';
+            }
+            key += part;
+        }
+    }
+    return key;
+}
+
 namespace {
 
 constexpr double kSlowFrameMs = 12;
@@ -178,6 +194,12 @@ void Output::apply_config(const config::Output* config) {
         ensure_scene_output();
     } else {
         wlr_output_layout_remove(server_.output_layout, output_);
+        // Its scene output no longer follows the layout: drop it, so turning
+        // the display on again creates one at its new position (instead of
+        // drawing the old area, mirroring another display).
+        if (wlr_scene_output* scene_output = wlr_scene_get_scene_output(server_.scene, output_)) {
+            wlr_scene_output_destroy(scene_output);
+        }
     }
     log::info("output {}: {} {}x{} scale {:.2f}", output_->name, enabled ? "on" : "off",
               output_->width, output_->height, output_->scale);

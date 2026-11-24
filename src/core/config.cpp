@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "zones.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -245,7 +246,7 @@ Config parse(const json& root, Reader& reader) {
         for (std::size_t i = 0; i < it->size(); ++i) {
             const std::string path = std::format("outputs[{}].", i);
             const auto& entry = Reader::expect_object((*it)[i], path);
-            reader.check_keys(entry, path, {"name", "enabled", "mode", "scale", "position"});
+            reader.check_keys(entry, path, {"name", "enabled", "mode", "scale", "position", "zones"});
             Output output;
             Reader::read(entry, path, "name", output.name);
             if (output.name.empty()) {
@@ -267,6 +268,11 @@ Config parse(const json& root, Reader& reader) {
                     throw ConfigError(std::format("'{}position' must be [x, y]", path));
                 }
                 output.position = std::pair{(*pos)[0].get<int>(), (*pos)[1].get<int>()};
+            }
+            std::string zones;
+            Reader::read(entry, path, "zones", zones);
+            if (!zones.empty()) {
+                output.zones = zones;
             }
             config.outputs.push_back(std::move(output));
         }
@@ -292,9 +298,48 @@ Config parse(const json& root, Reader& reader) {
 
     if (auto it = root.find("windows"); it != root.end()) {
         const auto& windows = Reader::expect_object(*it, "windows");
-        reader.check_keys(windows, "windows.", {"titlebar_height", "border_width"});
+        reader.check_keys(windows, "windows.",
+                          {"titlebar_height", "border_width", "remember_positions", "zones", "zone_gap",
+                           "zone_layouts"});
         Reader::read(windows, "windows.", "titlebar_height", config.windows.titlebar_height);
         Reader::read(windows, "windows.", "border_width", config.windows.border_width);
+        Reader::read(windows, "windows.", "remember_positions", config.windows.remember_positions);
+        Reader::read(windows, "windows.", "zones", config.windows.zones);
+        Reader::read(windows, "windows.", "zone_gap", config.windows.zone_gap);
+        if (config.windows.zone_gap < 0 || config.windows.zone_gap > 64) {
+            throw ConfigError("'windows.zone_gap' must be between 0 and 64");
+        }
+        if (auto layouts = windows.find("zone_layouts"); layouts != windows.end() && !layouts->is_null()) {
+            if (!layouts->is_object()) {
+                throw ConfigError("'windows.zone_layouts' must be an object of named layouts");
+            }
+            for (const auto& [name, list] : layouts->items()) {
+                const std::string path = "windows.zone_layouts." + name;
+                const bool clash = std::ranges::any_of(zones::builtin(), [&](const auto& l) { return l.name == name; });
+                if (clash) {
+                    throw ConfigError(std::format("'{}': \"{}\" is a built-in layout; pick another name", path, name));
+                }
+                if (!list.is_array() || list.empty() || list.size() > 16) {
+                    throw ConfigError(std::format("'{}' must be a list of 1 to 16 zones", path));
+                }
+                ZoneLayout layout{.name = name, .zones = {}};
+                for (const auto& zone : list) {
+                    const bool numbers = zone.is_array() && zone.size() == 4 &&
+                                         std::ranges::all_of(zone, [](const json& v) { return v.is_number(); });
+                    if (!numbers) {
+                        throw ConfigError(std::format("'{}': each zone is [x, y, width, height] in percent", path));
+                    }
+                    const std::array<double, 4> z{zone[0].get<double>(), zone[1].get<double>(),
+                                                  zone[2].get<double>(), zone[3].get<double>()};
+                    if (z[0] < 0 || z[1] < 0 || z[2] <= 0 || z[3] <= 0 || z[0] + z[2] > 100.001 ||
+                        z[1] + z[3] > 100.001) {
+                        throw ConfigError(std::format("'{}': zones must lie within 0..100 percent", path));
+                    }
+                    layout.zones.push_back(z);
+                }
+                config.windows.zone_layouts.push_back(std::move(layout));
+            }
+        }
         if (config.windows.titlebar_height < 16 || config.windows.titlebar_height > 96) {
             throw ConfigError("'windows.titlebar_height' must be between 16 and 96");
         }
@@ -327,6 +372,20 @@ Config parse(const json& root, Reader& reader) {
                 throw ConfigError(std::format("'idle.{}' must be between 0 (never) and {} seconds",
                                               key, kDay));
             }
+        }
+    }
+
+    auto known_layout = [&](const std::string& name) {
+        return std::ranges::any_of(zones::builtin(), [&](const auto& l) { return l.name == name; }) ||
+               std::ranges::any_of(config.windows.zone_layouts, [&](const auto& l) { return l.name == name; });
+    };
+    if (!known_layout(config.windows.zones)) {
+        throw ConfigError(std::format("'windows.zones': no layout called \"{}\"", config.windows.zones));
+    }
+    for (const auto& output : config.outputs) {
+        if (output.zones && !known_layout(*output.zones)) {
+            throw ConfigError(std::format("'zones' of output \"{}\": no layout called \"{}\"", output.name,
+                                          *output.zones));
         }
     }
 

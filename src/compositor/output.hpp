@@ -14,6 +14,11 @@ namespace tetra {
 class LayerSurface;
 class Server;
 
+// A display's identity for window memory: make, model and serial when the
+// monitor reports a serial (so it is recognised on any connector), else the
+// connector name.
+std::string display_key(const wlr_output* output);
+
 // A display: mode/scale/position from the config, the desktop background,
 // and the layer-shell surfaces (bars, wallpapers, ...) placed on it.
 class Output {

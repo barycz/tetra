@@ -64,7 +64,9 @@ Server::~Server() {
     focused_view_ = nullptr;
     hovered_view_ = nullptr;
     grab_ = {};
+    zone_overlay_.reset();
     views_.clear();
+    save_window_memory(); // what the closing windows remembered
     keyboards_.clear();
     pointers_.clear();
     outputs_.clear();
@@ -88,6 +90,11 @@ Server::~Server() {
     }
     if (config_source_ != nullptr) {
         wl_event_source_remove(config_source_);
+    }
+    for (wl_event_source* source : {window_memory_source_, window_memory_timer_, setup_check_idle_}) {
+        if (source != nullptr) {
+            wl_event_source_remove(source);
+        }
     }
     if (shell_timer_ != nullptr) {
         wl_event_source_remove(shell_timer_);
@@ -158,16 +165,19 @@ std::expected<void, std::string> Server::init() {
     layers.background = wlr_scene_tree_create(&scene->tree);
     layers.bottom = wlr_scene_tree_create(&scene->tree);
     layers.windows = wlr_scene_tree_create(&scene->tree);
+    layers.zones = wlr_scene_tree_create(&scene->tree);
     layers.top = wlr_scene_tree_create(&scene->tree);
     layers.fullscreen = wlr_scene_tree_create(&scene->tree);
     layers.unmanaged = wlr_scene_tree_create(&scene->tree);
     layers.overlay = wlr_scene_tree_create(&scene->tree);
+    zone_overlay_ = std::make_unique<ZoneOverlay>(*this, layers.zones);
     session_lock_ = std::make_unique<SessionLock>(*this); // its cover goes above everything
     layout_change_.connect(output_layout->events.change, [this] {
         if (session_lock_) {
             session_lock_->handle_layout_changed();
         }
         schedule_output_manager_update();
+        schedule_display_setup_check();
     });
 
     init_protocols();
@@ -219,6 +229,7 @@ std::expected<void, std::string> Server::init() {
     }
 
     watch_config();
+    load_window_memory();
     return {};
 }
 

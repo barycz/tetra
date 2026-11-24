@@ -4,7 +4,10 @@
 #include "wlr.hpp"
 
 #include <memory>
+#include <optional>
+#include <string>
 #include <string_view>
+#include <utility>
 
 namespace tetra {
 
@@ -69,6 +72,21 @@ public:
     // Normal-state size to restore to; used when dragging a maximized window.
     [[nodiscard]] const wlr_box& saved_geometry() const noexcept { return saved_; }
 
+    // Snap zones. Fits the frame into `zone` (layout coordinates); the size
+    // it had before comes back when it is dragged out.
+    void snap_to(const wlr_box& zone);
+    // Leaves its zone: the size to go back to, if it was snapped.
+    std::optional<std::pair<int, int>> unsnap();
+    void forget_snap() { snap_.reset(); }
+    [[nodiscard]] std::optional<wlr_box> snapped_zone() const {
+        return snap_ ? std::optional(snap_->zone) : std::nullopt;
+    }
+
+    // Window memory (placement.cpp). Records where the window is now.
+    void remember_place();
+    // The displays changed: go where this window was with these displays.
+    void restore_place();
+
 protected:
     // Ask the client for a new content size (X11: and position).
     virtual void configure(const wlr_box& content) = 0;
@@ -80,6 +98,13 @@ protected:
     virtual void send_position() {}
     // Client window geometry within its surface (xdg window geometry).
     [[nodiscard]] virtual wlr_box surface_geometry() const = 0;
+    // A top-level window of its app (not a dialog): remembered by position.
+    [[nodiscard]] virtual bool is_main_window() const = 0;
+
+    // Window memory: claims the app's next free slot and picks the display
+    // the window opens on. Returns the size to ask for, if one is known.
+    // Done once; handle_map() does it if the subclass has not.
+    std::optional<std::pair<int, int>> prepare_placement();
 
     // Subclasses attach their surface tree under tree() and call these.
     void attach_surface_tree(wlr_scene_tree* surface_tree);
@@ -97,7 +122,14 @@ protected:
 
 private:
     void place_initially();
-    void sync_surface_offset();
+    // Places the window as remembered on `display`; false if nothing is.
+    bool apply_remembered(const std::string& display, bool first_map);
+    void release_slot();
+    // Maximizes on `output`, returning to `normal` when unmaximized.
+    void maximize_on(const Output& output, const wlr_box& normal);
+    // `content` moved, and shrunk if needed, so the whole frame fits `area`.
+    [[nodiscard]] wlr_box fit(wlr_box content, const wlr_box& area) const;
+    [[nodiscard]] wlr_box maximized_box(const wlr_box& area) const;
     [[nodiscard]] wlr_box full_area() const;
     [[nodiscard]] wlr_box maximized_content() const;
 
@@ -111,6 +143,20 @@ private:
     bool minimized_ = false;
     bool activated_ = false;
     bool placed_ = false;
+
+    struct Snap {
+        wlr_box zone;
+        int width; // content size before snapping
+        int height;
+    };
+    std::optional<Snap> snap_;
+
+    // Window memory.
+    bool memory_prepared_ = false;
+    std::string memory_app_;
+    std::optional<std::size_t> memory_slot_;
+    std::optional<std::string> memory_display_; // where it opens
+    std::optional<wlr_box> remembered_maximized_; // maximize on map, with this normal geometry
 };
 
 } // namespace tetra

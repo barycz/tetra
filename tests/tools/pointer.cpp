@@ -108,16 +108,17 @@ private:
         // Leave a frame or so between events, like a hand would.
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    [[nodiscard]] uint32_t now() const {
-        return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                         std::chrono::steady_clock::now() - start_)
-                                         .count());
+    // Milliseconds on the monotonic clock, as real input devices report, so
+    // events from separate runs compare (double clicks).
+    [[nodiscard]] static uint32_t now() {
+        return static_cast<uint32_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+                .count());
     }
 
     wl_display* display_;
     zwlr_virtual_pointer_v1* pointer_;
     Size size_;
-    std::chrono::steady_clock::time_point start_ = std::chrono::steady_clock::now();
 };
 
 std::vector<double> numbers(std::span<char*> args) {
