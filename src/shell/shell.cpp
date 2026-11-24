@@ -131,6 +131,12 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
         } catch (const sdbus::Error& e) {
             std::println(stderr, "tetra-shell: notifications disabled: {}", e.what());
         }
+        try {
+            sni_ = std::make_unique<SniTray>(app_, dbus_->connection());
+            sni_->on_changed = [this] { redraw_bars(); };
+        } catch (const sdbus::Error& e) {
+            std::println(stderr, "tetra-shell: app tray icons disabled: {}", e.what());
+        }
     }
     system_bus_ = ui::DBusConnection::system(app_);
     brightness_ = std::make_unique<Brightness>(system_bus_ ? &system_bus_->connection() : nullptr);
@@ -151,6 +157,8 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
 }
 
 Shell::~Shell() {
+    tray_menu_.reset();
+    sni_.reset();
     notifications_.reset();
     polkit_.reset();
     logind_.reset();
@@ -246,6 +254,28 @@ const ui::OutputInfo* Shell::output_info(const wl_output* output) const {
     return nullptr;
 }
 
+void Shell::open_tray_menu(const SniItem& item, wl_output* output, float anchor_x) {
+    hide_tray_menu();
+    if (item.menu_path.empty() || !dbus_) {
+        return;
+    }
+    try {
+        tray_menu_ = std::make_unique<TrayMenu>(*this, dbus_->connection(), item.service,
+                                                item.menu_path, output, anchor_x);
+    } catch (const sdbus::Error& e) {
+        std::println(stderr, "tetra-shell: tray menu: {}", e.what());
+    }
+}
+
+void Shell::hide_tray_menu() {
+    if (tray_menu_) {
+        // Possibly called from the menu's own draw or a reply handler of its
+        // proxy: destroy it on the next turn.
+        std::shared_ptr<TrayMenu> closing(std::move(tray_menu_));
+        app_.add_timer(milliseconds(0), [closing] {});
+    }
+}
+
 void Shell::lock() {
     if (lock_screen_->locked()) {
         if (logind_) {
@@ -255,6 +285,7 @@ void Shell::lock() {
     }
     hide_launcher();
     hide_volume_popup();
+    hide_tray_menu();
     lock_screen_->lock(outputs_);
 }
 

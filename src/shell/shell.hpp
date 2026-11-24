@@ -13,6 +13,8 @@
 #include "osd.hpp"
 #include "polkit_agent.hpp"
 #include "screenshot.hpp"
+#include "sni.hpp"
+#include "tray_menu.hpp"
 #include "tray.hpp"
 
 #include <array>
@@ -66,6 +68,10 @@ public:
     [[nodiscard]] Audio& audio() noexcept { return *audio_; }
     [[nodiscard]] Notifications* notifications() noexcept { return notifications_.get(); }
     [[nodiscard]] const ui::OutputInfo* output_info(const wl_output* output) const;
+    [[nodiscard]] SniTray* sni() noexcept { return sni_.get(); }
+    // A tray item's menu, above the bar at `anchor_x` on `output`.
+    void open_tray_menu(const SniItem& item, wl_output* output, float anchor_x);
+    void hide_tray_menu();
 
     void activate_slot(std::size_t index);
     void launch_slot(std::size_t index);
@@ -114,6 +120,8 @@ private:
     std::unique_ptr<Logind> logind_;
     std::unique_ptr<PolkitAgent> polkit_;
     std::unique_ptr<Notifications> notifications_;
+    std::unique_ptr<SniTray> sni_;
+    std::unique_ptr<TrayMenu> tray_menu_;
 };
 
 } // namespace tetra::shell

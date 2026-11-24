@@ -31,6 +31,7 @@ private:
     App& app_;
     std::unique_ptr<sdbus::IConnection> connection_;
     App::SourceId source_ = 0;
+    bool broken_ = false; // the bus went away: stop polling it
 };
 
 } // namespace tetra::ui

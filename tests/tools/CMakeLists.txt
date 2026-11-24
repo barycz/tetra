@@ -17,3 +17,7 @@ tetra_wayland_protocols(tetra-pointer CLIENT
     "${WLR_PROTOCOLS_DIR}/wlr-virtual-pointer-unstable-v1.xml"
 )
 target_link_libraries(tetra-pointer PRIVATE PkgConfig::TEST_TOOL_DEPS tetra_warnings)
+
+find_package(sdbus-c++ 2 REQUIRED)
+add_executable(tetra-tray-item tray_item.cpp)
+target_link_libraries(tetra-tray-item PRIVATE SDBusCpp::sdbus-c++ tetra_warnings)

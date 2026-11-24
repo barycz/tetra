@@ -83,7 +83,30 @@ third-party apps (Steam, Discord, …).
 
 Phase 2 reads network and battery state from sysfs (`/sys/class/net`,
 `/sys/class/power_supply`) every 5 s. Volume arrived in phase 3 (left to
-right: network, volume, battery); the D-Bus services and Bluetooth follow.
+right: app icons, network, volume, battery). The UPower/NetworkManager
+D-Bus services and Bluetooth follow.
+
+App icons (StatusNotifierItem), also phase 3:
+- **Watcher and host:** tetra-shell is `org.kde.StatusNotifierWatcher` and
+  its only host. Items register by bus name or, libappindicator-style, by
+  object path on their own connection. An item is dropped when its bus
+  name goes away (NameOwnerChanged).
+- **Async reads:** properties are read with GetAll asynchronously and
+  re-read on any New* signal, so a hung app never blocks the bar.
+- **Icons:** IconName (the app's IconThemePath first), else IconPixmap
+  (ARGB → texture), else a generic icon. NeedsAttention uses the attention
+  icon; Passive items are hidden.
+- **Clicks:** left click calls Activate, or opens the menu for
+  ItemIsMenu items and for apps without Activate. Right click opens the
+  menu, or calls ContextMenu when there is no menu. Middle click calls
+  SecondaryActivate; the wheel calls Scroll (±120 per notch).
+- **Menus:** com.canonical.dbusmenu, read asynchronously (AboutToShow,
+  then GetLayout, refetched on LayoutUpdated). They are drawn with ImGui
+  menu items above the icon, with submenus, check marks, radio items,
+  separators and disabled entries. A click sends the "clicked" event.
+- **Not yet:** tooltips (the bar surface is only as tall as the bar), an
+  overflow for many icons, the legacy XEmbed tray, and running beside
+  another watcher (if one owns the name, app icons are off).
 
 ## Architecture
 
@@ -321,7 +344,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   BeginAuthentication (for pkexec, mounting, package installs). For each
   try, the shell runs the setuid `polkit-agent-helper-1`, sends the cookie
   on stdin (never on the command line) and relays the helper's PAM prompts
-  (`PAM_PROMPT_ECHO_OFF` �) to a dialog. On success the helper reports to
+  (`PAM_PROMPT_ECHO_OFF` …) to a dialog. On success the helper reports to
   polkitd itself; on failure a new try starts.
   - The dialog dims the screen and shows the app's message, which user
     (admin groups such as sudo expand to their members, the current user
@@ -374,6 +397,9 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   Screenshots go to a private `$XDG_PICTURES_DIR`. `tetra-pointer` gives
   absolute moves, clicks and drags (wlrctl cannot drag). wlroots releases a
   virtual pointer's buttons when it goes away, so `hold` keeps running.
+  `tetra-tray-item` is a StatusNotifierItem with a dbusmenu (or
+  libappindicator-style with `--appindicator`). It reports what it receives
+  as notifications.
 - The seat always advertises a keyboard, so clients hold a `wl_keyboard`
   before any (virtual or hot-plugged) keyboard appears.
 - **Real session:** from a spare TTY, or later through a `wayland-sessions`
@@ -390,8 +416,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
 2. **Task bar** — private protocol, F-key slots, launcher, basic tray.
    *(done; window-list popup, tooltips and pinning from the UI pending)*
 3. **Shell services** — notifications, OSD, lock/idle, polkit agent, screenshots, SNI tray.
-   *(in progress: D-Bus layer, notifications, volume/brightness OSD, lock
-   screen, idle, polkit agent and screenshots done)*
+   *(done; not yet tried on a real seat)*
 4. **Settings app.**
 5. **Apps and portal** — terminal, system monitor, portal backend.
 6. **Final pieces** — greeter, animations, polish.

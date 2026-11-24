@@ -18,7 +18,9 @@ add_executable(tetra-shell
     polkit_agent.cpp
     screenshot.cpp
     shell.cpp
+    sni.cpp
     tray.cpp
+    tray_menu.cpp
     volume_popup.cpp
 )
 tetra_wayland_protocols(tetra-shell CLIENT

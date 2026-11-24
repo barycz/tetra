@@ -1,13 +1,16 @@
 #include "bar.hpp"
 
 #include "shell.hpp"
+#include "sni.hpp"
 #include "style.hpp"
+#include "texture.hpp"
 
 #include <imgui.h>
 
 #include <array>
 #include <cmath>
 #include <ctime>
+#include <filesystem>
 #include <format>
 #include <string>
 
@@ -61,7 +64,9 @@ std::string format_time(const char* format) {
 
 } // namespace
 
-Bar::Bar(Shell& shell, const ui::OutputInfo& output) : shell_(shell) {
+Bar::Bar(Shell& shell, const ui::OutputInfo& output)
+    : shell_(shell), output_(output.output),
+      output_height_(static_cast<float>(output.height) / static_cast<float>(std::max(output.scale, 1))) {
     window_ = std::make_unique<ui::LayerWindow>(
         shell_.app(), ui::LayerWindow::Options{
                           .layer = ui::LayerWindow::Layer::Top,
@@ -255,7 +260,114 @@ float Bar::draw_tray(float right, float height) {
     }
 
     draw_icon(state.network_icon);
+    draw_sni_items(x, height);
     return x;
+}
+
+void Bar::draw_sni_items(float& x, float height) {
+    SniTray* sni = shell_.sni();
+    if (sni == nullptr) {
+        return;
+    }
+    const auto& p = shell_.app().palette();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float scale = ImGui::GetIO().DisplayFramebufferScale.x;
+    const int pixels = static_cast<int>(kTrayIconSize * scale);
+    constexpr float kPad = 6;
+    const float button_w = kTrayIconSize + (2 * kPad);
+    const float button_h = height - 12;
+    const float by = std::round((height - button_h) / 2);
+
+    x -= 4; // a little more room between our icons and the apps'
+    for (const auto& owned : sni->items()) {
+        SniItem& item = *owned;
+        if (!item.visible()) {
+            continue;
+        }
+        const float bx = x - kTrayIconSize - kPad;
+        ImGui::PushID(&item);
+        ImGui::SetCursorPos({bx, by});
+        ImGui::InvisibleButton("##sni", {button_w, button_h},
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                                   ImGuiButtonFlags_MouseButtonMiddle);
+        const bool hovered = ImGui::IsItemHovered();
+        // Where the icon is, in output coordinates (apps position their
+        // own windows from it).
+        const float anchor = bx + (button_w / 2);
+        const int ax = static_cast<int>(anchor);
+        const int ay = static_cast<int>(output_height_ - Bar::kHeight + (height / 2));
+        SniItem* raw = &item;
+        wl_output* output = output_;
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+            sni->activate(item, ax, ay, [this, raw, output, anchor] {
+                shell_.open_tray_menu(*raw, output, anchor);
+            });
+        } else if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            if (!item.menu_path.empty()) {
+                shell_.open_tray_menu(item, output, anchor);
+            } else {
+                sni->context_menu(item, ax, ay);
+            }
+        } else if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) {
+            sni->secondary_activate(item, ax, ay);
+        }
+        if (hovered) {
+            dl->AddRectFilled({bx, by}, {bx + button_w, by + button_h},
+                              ui::to_imu32(ImGui::IsItemActive() ? p.pressed : p.hover), 6);
+            if (const float wheel = ImGui::GetIO().MouseWheel; wheel != 0) {
+                sni->scroll(item, wheel > 0 ? 120 : -120); // one notch, Qt units
+            }
+        }
+        ImGui::PopID();
+
+        // The icon: a themed name (the app's own theme dir first), else
+        // the pixmap the app sent, else a generic one.
+        const ImVec2 icon_min{x - kTrayIconSize, std::round((height - kTrayIconSize) / 2)};
+        const ImVec2 icon_max{icon_min.x + kTrayIconSize, icon_min.y + kTrayIconSize};
+        const std::string& name = item.needs_attention() && !item.attention_icon_name.empty()
+                                      ? item.attention_icon_name
+                                      : item.icon_name;
+        const ui::Icon* icon = nullptr;
+        if (!name.empty() && !item.icon_theme_path.empty()) {
+            for (const char* ext : {".png", ".svg"}) {
+                const std::filesystem::path file =
+                    std::filesystem::path(item.icon_theme_path) / (name + ext);
+                std::error_code ec;
+                if (std::filesystem::exists(file, ec)) {
+                    icon = shell_.icons().get(file.string(), pixels);
+                    break;
+                }
+            }
+        }
+        if (icon == nullptr && !name.empty()) {
+            icon = shell_.icons().get(name, pixels);
+        }
+        if (icon == nullptr) {
+            if (const SniItem::Pixmap* pixmap = item.best_pixmap(pixels)) {
+                if (item.texture_dirty || !item.texture) {
+                    // ARGB, big-endian -> RGBA.
+                    std::vector<uint8_t> rgba(pixmap->argb.size());
+                    for (std::size_t i = 0; i + 3 < rgba.size(); i += 4) {
+                        rgba[i] = pixmap->argb[i + 1];
+                        rgba[i + 1] = pixmap->argb[i + 2];
+                        rgba[i + 2] = pixmap->argb[i + 3];
+                        rgba[i + 3] = pixmap->argb[i];
+                    }
+                    item.texture = std::make_unique<ui::Texture>(pixmap->width, pixmap->height,
+                                                                 pixmap->width * 4, 4, rgba);
+                    item.texture_dirty = false;
+                }
+                dl->AddImage(item.texture->ref(), icon_min, icon_max);
+            } else {
+                icon = shell_.icons().get("application-x-executable", pixels);
+            }
+        }
+        if (icon != nullptr) {
+            const ImU32 tint = icon->symbolic ? ui::to_imu32(p.text) : IM_COL32_WHITE;
+            dl->AddImage(icon->ref(), icon_min, icon_max, {0, 0}, {1, 1}, tint);
+        }
+        x -= kTrayIconSize + 12;
+    }
 }
 
 void Bar::draw_clock(float right, float height) {

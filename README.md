@@ -10,8 +10,9 @@ groups of four), app launcher, network/battery indicators and clock;
 desktop notifications (`notify-send` works); volume control in the tray and
 a volume/brightness OSD for the media keys; a lock screen (PAM) with idle
 locking, screen blanking and locking before sleep; a polkit agent (pkexec and
-friends ask for your password in a tetra dialog); screenshots (Print); one JSON configuration with live
-reload ([docs/config.md](docs/config.md)). Phase 3 (shell services) in progress.
+friends ask for your password in a tetra dialog); screenshots (Print); app
+icons in the tray (StatusNotifierItem, with their menus); one JSON configuration with live
+reload ([docs/config.md](docs/config.md)). Phase 3 (shell services) done.
 
 ## Building (Debian 13)
 
@@ -94,12 +95,13 @@ Pin apps to slots with `taskbar.pinned` in `~/.config/tetra/config.json`.
 src/core/         config, theme palette, desktop entries, process spawning (shared)
 src/compositor/   the compositor (binary: tetra), incl. the task bar slot model
 src/toolkit/      ImGui-on-Wayland toolkit for the shell and apps (incl. icons)
-src/shell/        tetra-shell: bar, launcher, tray, notifications, volume/OSD, lock screen, idle
+src/shell/        tetra-shell: bar, launcher, tray (incl. app icons), notifications, volume/OSD,
+                  lock screen, idle, polkit agent, screenshots
 data/             files installed alongside (PAM service for the lock screen)
 protocols/        tetra's private Wayland protocol (compositor <-> shell)
 scripts/          deps, vendored build, headless runner, test runner
 tests/headless/   scripted headless scenarios
-tests/tools/      tetra-sendkeys (key chords), tetra-pointer (moves, drags), polkit-request, fake-polkit-helper
+tests/tools/      tetra-sendkeys, tetra-pointer, tetra-tray-item, polkit-request, fake-polkit-helper
 patches/          local patches to vendored dependencies
 third_party/      pinned submodules (wlroots, wayland, imgui, ...)
 docs/             design notes, configuration reference

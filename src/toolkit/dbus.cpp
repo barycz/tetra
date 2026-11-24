@@ -28,13 +28,31 @@ DBusConnection::DBusConnection(App& app, std::unique_ptr<sdbus::IConnection> con
     : app_(app), connection_(std::move(connection)) {
     source_ = app_.add_source(
         [this](std::vector<pollfd>& fds) {
-            const auto poll = connection_->getEventLoopPollData();
-            fds.push_back({.fd = poll.fd, .events = poll.events, .revents = 0});
-            fds.push_back({.fd = poll.eventFd, .events = POLLIN, .revents = 0});
-            return poll.getPollTimeout();
+            if (broken_) {
+                return -1;
+            }
+            try {
+                const auto poll = connection_->getEventLoopPollData();
+                fds.push_back({.fd = poll.fd, .events = poll.events, .revents = 0});
+                fds.push_back({.fd = poll.eventFd, .events = POLLIN, .revents = 0});
+                return poll.getPollTimeout();
+            } catch (const sdbus::Error& e) {
+                // The bus daemon went away (e.g. at logout); nothing more to do.
+                std::println(stderr, "{}: D-Bus connection lost: {}", app_.app_id(), e.what());
+                broken_ = true;
+                return -1;
+            }
         },
         [this] {
-            while (connection_->processPendingEvent()) {
+            if (broken_) {
+                return;
+            }
+            try {
+                while (connection_->processPendingEvent()) {
+                }
+            } catch (const sdbus::Error& e) {
+                std::println(stderr, "{}: D-Bus connection lost: {}", app_.app_id(), e.what());
+                broken_ = true;
             }
         });
 }

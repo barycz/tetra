@@ -28,7 +28,11 @@ private:
     float draw_tray(float right, float height);
     void draw_clock(float right, float height);
 
+    void draw_sni_items(float& x, float height);
+
     Shell& shell_;
+    wl_output* output_;
+    float output_height_; // logical, for coordinates sent to tray apps
     std::unique_ptr<ui::LayerWindow> window_;
 };
 
