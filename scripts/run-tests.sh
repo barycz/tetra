@@ -23,10 +23,13 @@ fi
 for test in "$root"/tests/headless/*.sh; do
     name="$(basename "$test" .sh)"
     # A scenario may ask for a longer wait with a "# wait: SECS" header line,
-    # and for more displays with "# outputs: N".
+    # for more displays with "# outputs: N", and for a private sound server
+    # with "# audio: pipewire".
     wait="$(sed -n 's/^# wait: *\([0-9.]*\)$/\1/p' "$test" | head -n 1)"
     outputs="$(sed -n 's/^# outputs: *\([0-9]*\)$/\1/p' "$test" | head -n 1)"
-    "$root/scripts/run-headless.sh" -p "$preset" -w "${wait:-6}" -n "${outputs:-1}" -o "$out/$name.png" \
+    sound=()
+    grep -q '^# audio: pipewire$' "$test" && sound=(-a)
+    "$root/scripts/run-headless.sh" -p "$preset" -w "${wait:-6}" -n "${outputs:-1}" "${sound[@]}" -o "$out/$name.png" \
         -- "$test" >/dev/null 2>&1
     status=$?
     log="$out/$name.log"

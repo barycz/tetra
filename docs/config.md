@@ -85,7 +85,9 @@ the error is logged by each component.
 
 Settings (Super+I) edits this file in place: it changes only the values you
 change and keeps your comments and layout. It leaves a file with errors
-alone until you fix it. Its Displays page writes one `outputs` entry per
+alone until you fix it. (Its Sound page is the exception: the output and
+input devices and their volume belong to the sound server, PipeWire, which
+remembers them itself.) Its Displays page writes one `outputs` entry per
 display (by connector name) and goes back to the previous file if you do
 not keep a change within 15 seconds.
 

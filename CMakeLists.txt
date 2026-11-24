@@ -49,6 +49,7 @@ include(cmake/WaylandProtocols.cmake)
 add_subdirectory(src/core)
 add_subdirectory(src/compositor)
 add_subdirectory(src/toolkit)
+add_subdirectory(src/audio)
 add_subdirectory(src/shell)
 add_subdirectory(src/apps)
 

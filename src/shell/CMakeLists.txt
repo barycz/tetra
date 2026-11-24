@@ -1,10 +1,8 @@
-pkg_check_modules(SHELL_DEPS REQUIRED IMPORTED_TARGET libpulse)
 # libpam0g-dev's pam.pc requires libaudit's .pc for static linking only.
 find_library(PAM_LIBRARY pam REQUIRED)
 find_path(PAM_INCLUDE_DIR security/pam_appl.h REQUIRED)
 
 add_executable(tetra-shell
-    audio.cpp
     auth.cpp
     bar.cpp
     brightness.cpp
@@ -27,8 +25,7 @@ tetra_wayland_protocols(tetra-shell CLIENT
     "${TETRA_PROTOCOLS_DIR}/tetra-shell-unstable-v1.xml"
 )
 target_include_directories(tetra-shell SYSTEM PRIVATE "${PAM_INCLUDE_DIR}")
-target_link_libraries(tetra-shell PRIVATE tetra_toolkit tetra_warnings PkgConfig::SHELL_DEPS
-                      "${PAM_LIBRARY}")
+target_link_libraries(tetra-shell PRIVATE tetra_audio tetra_toolkit tetra_warnings "${PAM_LIBRARY}")
 
 install(TARGETS tetra-shell)
 # PAM only reads /etc/pam.d: with another prefix this lands elsewhere and

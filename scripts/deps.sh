@@ -33,9 +33,10 @@ packages=(
 
     # dev/test tools: screenshots, reference terminals, X11 test apps,
     # input injection, EGL info, fake PAM for lock screen tests, display
-    # management client
+    # management client, a private sound server for audio tests
+    # (run-headless.sh -a) and its command-line client
     grim foot xterm x11-apps wlrctl mesa-utils libpam-wrapper wl-clipboard
-    wlr-randr
+    wlr-randr pipewire pipewire-pulse wireplumber pulseaudio-utils
 )
 
 sudo apt-get update -qq

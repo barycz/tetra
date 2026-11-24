@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string_view>
@@ -14,17 +15,27 @@
 #include <sys/eventfd.h>
 #include <unistd.h>
 
-namespace tetra::shell {
+namespace tetra {
 
 namespace {
 
 using Publish = std::function<void(const Audio::State&)>;
 
-// In-memory device for headless tests.
+// In-memory devices for headless tests.
 class FakeBackend final : public Audio::Backend {
 public:
     explicit FakeBackend(Publish publish) : publish_(std::move(publish)) {
-        state_ = {.available = true, .volume = 0.5F, .muted = false, .device = "Simulated output"};
+        state_ = {.available = true,
+                  .volume = 0.5F,
+                  .muted = false,
+                  .device = "Simulated output",
+                  .output = "fake-output",
+                  .outputs = {{.name = "fake-output", .description = "Simulated output"},
+                              {.name = "fake-headphones", .description = "Simulated headphones"}},
+                  .input_volume = 0.8F,
+                  .input_muted = false,
+                  .input = "fake-microphone",
+                  .inputs = {{.name = "fake-microphone", .description = "Simulated microphone"}}};
         publish_(state_);
     }
     void set_volume(float volume) override {
@@ -35,7 +46,30 @@ public:
         state_.muted = muted;
         publish_(state_);
     }
-    void toggle_mic_mute() override {}
+    void set_output(const std::string& name) override {
+        for (const auto& d : state_.outputs) {
+            if (d.name == name) {
+                state_.output = d.name;
+                state_.device = d.description;
+            }
+        }
+        publish_(state_);
+    }
+    void set_input(const std::string& name) override {
+        if (std::ranges::any_of(state_.inputs, [&](const auto& d) { return d.name == name; })) {
+            state_.input = name;
+        }
+        publish_(state_);
+    }
+    void set_input_volume(float volume) override {
+        state_.input_volume = volume;
+        publish_(state_);
+    }
+    void set_input_muted(bool muted) override {
+        state_.input_muted = muted;
+        publish_(state_);
+    }
+    void toggle_mic_mute() override { set_input_muted(!state_.input_muted); }
 
 private:
     Publish publish_;
@@ -43,7 +77,7 @@ private:
 };
 
 // PulseAudio client on its own thread (pa_threaded_mainloop). Callbacks run
-// on that thread with the loop lock held; they store a snapshot and wake the
+// on that thread with the loop lock held; they gather a snapshot and wake the
 // UI thread through an eventfd. Commands from the UI thread take the loop lock.
 class PulseBackend final : public Audio::Backend {
 public:
@@ -73,13 +107,10 @@ public:
 
     void set_volume(float volume) override {
         const Lock lock(loop_);
-        if (!ready() || sink_.empty()) {
-            return;
+        if (ready() && !sink_.empty()) {
+            const pa_cvolume cvolume = make_volume(volume, channels_.contains(sink_) ? channels_.at(sink_) : 2);
+            unref(pa_context_set_sink_volume_by_name(context_, sink_.c_str(), &cvolume, nullptr, nullptr));
         }
-        pa_cvolume cvolume;
-        pa_cvolume_set(&cvolume, channels_,
-                       static_cast<pa_volume_t>(std::lround(std::clamp(volume, 0.0F, 1.0F) * PA_VOLUME_NORM)));
-        unref(pa_context_set_sink_volume_by_name(context_, sink_.c_str(), &cvolume, nullptr, nullptr));
     }
 
     void set_muted(bool muted) override {
@@ -89,9 +120,40 @@ public:
         }
     }
 
+    void set_output(const std::string& name) override {
+        const Lock lock(loop_);
+        if (ready()) {
+            unref(pa_context_set_default_sink(context_, name.c_str(), nullptr, nullptr));
+        }
+    }
+
+    void set_input(const std::string& name) override {
+        const Lock lock(loop_);
+        if (ready()) {
+            unref(pa_context_set_default_source(context_, name.c_str(), nullptr, nullptr));
+        }
+    }
+
+    void set_input_volume(float volume) override {
+        const Lock lock(loop_);
+        if (ready() && !source_.empty()) {
+            const pa_cvolume cvolume =
+                make_volume(volume, channels_.contains(source_) ? channels_.at(source_) : 1);
+            unref(pa_context_set_source_volume_by_name(context_, source_.c_str(), &cvolume, nullptr, nullptr));
+        }
+    }
+
+    void set_input_muted(bool muted) override {
+        const Lock lock(loop_);
+        if (ready() && !source_.empty()) {
+            unref(pa_context_set_source_mute_by_name(context_, source_.c_str(), muted ? 1 : 0, nullptr, nullptr));
+        }
+    }
+
     void toggle_mic_mute() override {
         const Lock lock(loop_);
         if (ready() && !source_.empty()) {
+            // Ask the server: our snapshot may be a moment old.
             unref(pa_context_get_source_info_by_name(
                 context_, source_.c_str(),
                 [](pa_context* context, const pa_source_info* info, int eol, void* /*data*/) {
@@ -116,10 +178,30 @@ private:
         pa_threaded_mainloop* loop_;
     };
 
+    // One refresh: the server info, then every sink and source; published
+    // once both lists are complete.
+    struct Snapshot {
+        PulseBackend* self;
+        Audio::State state;
+        std::map<std::string, uint8_t> channels;
+        int pending = 2;
+    };
+
     static void unref(pa_operation* operation) {
         if (operation != nullptr) {
             pa_operation_unref(operation);
         }
+    }
+
+    static pa_cvolume make_volume(float volume, uint8_t channels) {
+        pa_cvolume cvolume;
+        pa_cvolume_set(&cvolume, std::max<uint8_t>(1, channels),
+                       static_cast<pa_volume_t>(std::lround(std::clamp(volume, 0.0F, 1.0F) * PA_VOLUME_NORM)));
+        return cvolume;
+    }
+
+    static float level(const pa_cvolume& volume) {
+        return static_cast<float>(pa_cvolume_avg(&volume)) / static_cast<float>(PA_VOLUME_NORM);
     }
 
     [[nodiscard]] bool ready() const {
@@ -129,9 +211,10 @@ private:
     // Loop locked (or not running).
     void connect() {
         pa_proplist* props = pa_proplist_new();
-        pa_proplist_sets(props, PA_PROP_APPLICATION_NAME, "tetra-shell");
-        pa_proplist_sets(props, PA_PROP_APPLICATION_ID, "tetra-shell");
-        context_ = pa_context_new_with_proplist(pa_threaded_mainloop_get_api(loop_), "tetra-shell", props);
+        const char* name = app_.app_id().c_str();
+        pa_proplist_sets(props, PA_PROP_APPLICATION_NAME, name);
+        pa_proplist_sets(props, PA_PROP_APPLICATION_ID, name);
+        context_ = pa_context_new_with_proplist(pa_threaded_mainloop_get_api(loop_), name, props);
         pa_proplist_free(props);
         pa_context_set_state_callback(context_, &PulseBackend::on_context_state, this);
         pa_context_set_subscribe_callback(context_, &PulseBackend::on_subscription, this);
@@ -189,7 +272,8 @@ private:
     static void on_subscription(pa_context* /*context*/, pa_subscription_event_type_t type,
                                 uint32_t /*index*/, void* data) {
         const auto facility = type & PA_SUBSCRIPTION_EVENT_FACILITY_MASK;
-        if (facility == PA_SUBSCRIPTION_EVENT_SINK || facility == PA_SUBSCRIPTION_EVENT_SERVER) {
+        if (facility == PA_SUBSCRIPTION_EVENT_SINK || facility == PA_SUBSCRIPTION_EVENT_SOURCE ||
+            facility == PA_SUBSCRIPTION_EVENT_SERVER) {
             static_cast<PulseBackend*>(data)->refresh();
         }
     }
@@ -202,39 +286,84 @@ private:
                 if (info == nullptr) {
                     return;
                 }
-                self->sink_ = info->default_sink_name != nullptr ? info->default_sink_name : "";
-                self->source_ = info->default_source_name != nullptr ? info->default_source_name : "";
-                if (self->sink_.empty()) {
-                    {
-                        const std::scoped_lock lock(self->mutex_);
-                        self->shared_ = {};
+                auto* snapshot = new Snapshot{.self = self, .state = {}, .channels = {}, .pending = 2};
+                snapshot->state.available = true;
+                snapshot->state.output = info->default_sink_name != nullptr ? info->default_sink_name : "";
+                snapshot->state.input = info->default_source_name != nullptr ? info->default_source_name : "";
+                pa_operation* sinks = pa_context_get_sink_info_list(context, &PulseBackend::on_sink, snapshot);
+                pa_operation* sources =
+                    pa_context_get_source_info_list(context, &PulseBackend::on_source, snapshot);
+                // A list that cannot be asked for counts as done.
+                for (pa_operation* op : {sinks, sources}) {
+                    if (op == nullptr) {
+                        finish(snapshot);
                     }
-                    self->wake();
-                    return;
+                    unref(op);
                 }
-                unref(pa_context_get_sink_info_by_name(context, self->sink_.c_str(),
-                                                       &PulseBackend::on_sink_info, self));
             },
             this));
     }
 
-    static void on_sink_info(pa_context* /*context*/, const pa_sink_info* info, int eol, void* data) {
-        auto* self = static_cast<PulseBackend*>(data);
+    static void on_sink(pa_context* /*context*/, const pa_sink_info* info, int eol, void* data) {
+        auto* snapshot = static_cast<Snapshot*>(data);
         if (eol != 0 || info == nullptr) {
+            finish(snapshot);
             return;
         }
-        self->channels_ = info->volume.channels;
-        Audio::State state{
-            .available = true,
-            .volume = static_cast<float>(pa_cvolume_avg(&info->volume)) / static_cast<float>(PA_VOLUME_NORM),
-            .muted = info->mute != 0,
-            .device = info->description != nullptr ? info->description : info->name,
-        };
+        auto& state = snapshot->state;
+        const std::string description = info->description != nullptr ? info->description : info->name;
+        state.outputs.push_back({.name = info->name, .description = description});
+        snapshot->channels[info->name] = info->volume.channels;
+        if (state.output == info->name) {
+            state.volume = level(info->volume);
+            state.muted = info->mute != 0;
+            state.device = description;
+        }
+    }
+
+    static void on_source(pa_context* /*context*/, const pa_source_info* info, int eol, void* data) {
+        auto* snapshot = static_cast<Snapshot*>(data);
+        if (eol != 0 || info == nullptr) {
+            finish(snapshot);
+            return;
+        }
+        if (info->monitor_of_sink != PA_INVALID_INDEX) {
+            return; // what an output plays, not a microphone
+        }
+        auto& state = snapshot->state;
+        state.inputs.push_back(
+            {.name = info->name, .description = info->description != nullptr ? info->description : info->name});
+        snapshot->channels[info->name] = info->volume.channels;
+        if (state.input == info->name) {
+            state.input_volume = level(info->volume);
+            state.input_muted = info->mute != 0;
+        }
+    }
+
+    static void finish(Snapshot* snapshot) {
+        if (--snapshot->pending > 0) {
+            return;
+        }
+        PulseBackend* self = snapshot->self;
+        auto& state = snapshot->state;
+        // Without a sink of that name (none yet), there is no output.
+        if (std::ranges::none_of(state.outputs, [&](const auto& d) { return d.name == state.output; })) {
+            state.output.clear();
+            state.device.clear();
+        }
+        // A monitor as the default input is no microphone.
+        if (std::ranges::none_of(state.inputs, [&](const auto& d) { return d.name == state.input; })) {
+            state.input.clear();
+        }
+        self->sink_ = state.output;
+        self->source_ = state.input;
+        self->channels_ = std::move(snapshot->channels);
         {
             const std::scoped_lock lock(self->mutex_);
             self->shared_ = std::move(state);
         }
         self->wake();
+        delete snapshot; // NOLINT(cppcoreguidelines-owning-memory)
     }
 
     // --- UI thread -------------------------------------------------------------------
@@ -264,10 +393,10 @@ private:
     ui::App& app_;
     Publish publish_;
     pa_threaded_mainloop* loop_ = nullptr;
-    pa_context* context_ = nullptr; // loop lock
-    std::string sink_;              // loop lock
-    std::string source_;            // loop lock
-    uint8_t channels_ = 2;          // loop lock
+    pa_context* context_ = nullptr;          // loop lock
+    std::string sink_;                       // loop lock: the default output
+    std::string source_;                     // loop lock: the default input
+    std::map<std::string, uint8_t> channels_; // loop lock: per sink/source
     int event_fd_ = -1;
     std::mutex mutex_;
     Audio::State shared_; // mutex_
@@ -325,8 +454,36 @@ void Audio::set_muted(bool muted) {
     backend_->set_muted(muted);
 }
 
+void Audio::set_output(const std::string& name) {
+    backend_->set_output(name);
+}
+
+void Audio::set_input(const std::string& name) {
+    backend_->set_input(name);
+}
+
+void Audio::set_input_volume(float volume) {
+    volume = std::clamp(volume, 0.0F, 1.0F);
+    State next = state_;
+    next.input_volume = volume;
+    const bool unmute = next.input_muted && volume > 0;
+    next.input_muted = next.input_muted && !unmute;
+    update(next);
+    backend_->set_input_volume(volume);
+    if (unmute) {
+        backend_->set_input_muted(false);
+    }
+}
+
+void Audio::set_input_muted(bool muted) {
+    State next = state_;
+    next.input_muted = muted;
+    update(next);
+    backend_->set_input_muted(muted);
+}
+
 void Audio::toggle_mic_mute() {
     backend_->toggle_mic_mute();
 }
 
-} // namespace tetra::shell
+} // namespace tetra

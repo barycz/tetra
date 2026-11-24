@@ -48,6 +48,7 @@ const std::vector<Settings::PageInfo>& Settings::pages() {
         {Page::Appearance, "appearance", "Appearance", "preferences-desktop-appearance-symbolic"},
         {Page::Displays, "displays", "Displays", "video-display-symbolic"},
         {Page::Zones, "zones", "Snap zones", "view-grid-symbolic"},
+        {Page::Sound, "sound", "Sound", "audio-volume-high-symbolic"},
         {Page::Taskbar, "taskbar", "Taskbar", "view-app-grid-symbolic"},
         {Page::Keyboard, "keyboard", "Keyboard", "input-keyboard-symbolic"},
         {Page::Mouse, "mouse", "Mouse & touchpad", "input-mouse-symbolic"},
@@ -58,7 +59,7 @@ const std::vector<Settings::PageInfo>& Settings::pages() {
     return list;
 }
 
-Settings::Settings(ui::App& app) : app_(app), icons_(app), displays_(app) {
+Settings::Settings(ui::App& app) : app_(app), icons_(app), displays_(app), audio_(app) {
     applications_.load();
     xkb_.load();
     font_families_ = list_font_families();
@@ -70,6 +71,7 @@ Settings::Settings(ui::App& app) : app_(app), icons_(app), displays_(app) {
         app_, ui::ToplevelWindow::Options{.title = "Settings", .width = 980, .height = 680});
     window_->on_draw = [this] { draw(); };
     displays_.on_changed = [this] { window_->request_redraw(); };
+    audio_.on_changed = [this] { window_->request_redraw(); };
     app_.on_config_changed = [this] {
         // A reload succeeded, so the file loads again.
         load_error_.clear();
@@ -132,6 +134,9 @@ void Settings::draw() {
         break;
     case Page::Zones:
         page_zones();
+        break;
+    case Page::Sound:
+        page_sound();
         break;
     case Page::Taskbar:
         page_taskbar();

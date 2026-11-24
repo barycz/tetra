@@ -10,6 +10,8 @@
 #   -w SECS    wait before screenshot (default: 2)
 #   -p PRESET  build preset to run    (default: debug)
 #   -c FILE    tetra config file      (default: an empty config, i.e. defaults)
+#   -a         a private sound server (PipeWire, no hardware) with two
+#              outputs and a microphone, instead of the simulated device
 #   -d         verbose compositor log
 #
 # Example: scripts/run-headless.sh -- 'foot & foot -e htop'
@@ -24,8 +26,9 @@ wait_secs=2
 preset=debug
 config=""
 debug=0
+sound=0
 
-while getopts "o:s:n:w:p:c:dh" opt; do
+while getopts "o:s:n:w:p:c:adh" opt; do
     case "$opt" in
         o) out="$OPTARG" ;;
         s) size="$OPTARG" ;;
@@ -33,8 +36,9 @@ while getopts "o:s:n:w:p:c:dh" opt; do
         w) wait_secs="$OPTARG" ;;
         p) preset="$OPTARG" ;;
         c) config="$OPTARG" ;;
+        a) sound=1 ;;
         d) debug=1 ;;
-        *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+        *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
     esac
 done
 shift $((OPTIND - 1))
@@ -101,10 +105,63 @@ dbus_info="$(dbus-daemon --session --fork --print-address=1 --print-pid=1 \
     --address="unix:path=$runtime/bus")"
 export DBUS_SESSION_BUS_ADDRESS="$(sed -n 1p <<<"$dbus_info")"
 dbus_pid="$(sed -n 2p <<<"$dbus_info")"
-# The system bus too (brightness goes through logind), and a simulated
-# sound device instead of the real PulseAudio/PipeWire server.
+# The system bus too (brightness goes through logind).
 export DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"
-export TETRA_AUDIO=fake
+
+# Sound: never the real PulseAudio/PipeWire server. Either a simulated device
+# inside the shell, or (-a) a private PipeWire in the runtime dir with
+# virtual devices only: WirePlumber runs with every hardware monitor off,
+# and all three keep their config and state in the runtime dir.
+unset PULSE_SERVER PIPEWIRE_REMOTE PIPEWIRE_RUNTIME_DIR
+sound_pids=()
+if ((sound)); then
+    unset TETRA_AUDIO
+    sound_dir="$runtime/sound"
+    mkdir -p "$sound_dir/state" "$sound_dir/config/wireplumber/wireplumber.conf.d"
+    cat >"$sound_dir/config/wireplumber/wireplumber.conf.d/90-tetra-test.conf" <<'EOF'
+wireplumber.profiles = {
+  main = {
+    hardware.audio = disabled
+    hardware.bluetooth = disabled
+    hardware.video-capture = disabled
+    support.reserve-device = disabled
+    support.logind = disabled
+  }
+}
+EOF
+    for server in pipewire wireplumber pipewire-pulse; do
+        XDG_CONFIG_HOME="$sound_dir/config" XDG_STATE_HOME="$sound_dir/state" \
+            "$server" >"$sound_dir/$server.log" 2>&1 &
+        sound_pids+=($!)
+        [[ $server == pipewire ]] && sleep 0.3
+    done
+    for _ in $(seq 50); do
+        pactl info >/dev/null 2>&1 && break
+        sleep 0.1
+    done
+    pactl load-module module-null-sink sink_name=speakers \
+        sink_properties=device.description=Speakers >/dev/null
+    pactl load-module module-null-sink sink_name=headphones \
+        sink_properties=device.description=Headphones >/dev/null
+    pactl load-module module-null-sink sink_name=microphone media.class=Audio/Source/Virtual channels=1 \
+        sink_properties=device.description=Microphone >/dev/null
+    # Virtual devices only take a volume while something plays (or
+    # records): keep them busy with silence.
+    for sink in speakers headphones; do
+        pacat --raw --device="$sink" /dev/zero &
+        sound_pids+=($!)
+    done
+    parec --raw --device=microphone >/dev/null &
+    sound_pids+=($!)
+    sleep 0.3
+    pactl set-default-sink speakers
+    pactl set-default-source microphone
+    pactl set-sink-volume speakers 50%
+    pactl set-sink-volume headphones 50%
+    pactl set-source-volume microphone 80%
+else
+    export TETRA_AUDIO=fake
+fi
 
 "$bin" "${args[@]}" >"$log" 2>&1 &
 pid=$!
@@ -112,6 +169,10 @@ pid=$!
 cleanup() {
     kill -TERM "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
+    for ((i = ${#sound_pids[@]} - 1; i >= 0; i--)); do # streams first, PipeWire last
+        kill -TERM "${sound_pids[i]}" 2>/dev/null || true
+        wait "${sound_pids[i]}" 2>/dev/null || true
+    done
     kill -TERM "$dbus_pid" 2>/dev/null || true
     # D-Bus-activated helpers (document portal, gvfs) mount FUSE file
     # systems in the runtime dir; unmount them before deleting it.

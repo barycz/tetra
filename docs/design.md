@@ -350,13 +350,22 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   (protocol version 2). The shell applies them and shows a small OSD at the
   bottom centre (icon, level bar, percentage; 1.5 s; greyed out when muted).
   Steps are 5 %.
-- **Volume**: libpulse (threaded mainloop), which works against both
-  PulseAudio and PipeWire's pipewire-pulse. It follows the default sink and
-  reconnects every 5 s if the server goes away. State is handed to the UI
-  thread through an eventfd. The tray speaker opens a popup (device, mute
-  button, slider) and the mouse wheel over it steps the volume. Under
-  `TETRA_AUDIO=fake` (set by `run-headless.sh`), an in-memory device
-  replaces the server.
+- **Volume** (`src/audio`, shared by the shell and Settings): libpulse
+  (threaded mainloop), which works against both PulseAudio and PipeWire's
+  pipewire-pulse. Each change event re-reads the server info and every sink
+  and source (monitors left out) into one snapshot: the outputs and
+  microphones, the defaults, their volume and mute. It reconnects every 5 s
+  if the server goes away. State is handed to the UI thread through an
+  eventfd. The tray speaker opens a popup (device, mute button, slider) and
+  the mouse wheel over it steps the volume. Settings > Sound picks the
+  default output and input (`set_default_sink/source`; the server moves
+  playing streams and remembers the choice) and sets their volume and mute.
+  Under `TETRA_AUDIO=fake` (set by `run-headless.sh`), in-memory devices
+  replace the server; `run-headless.sh -a` instead runs a private PipeWire
+  (pipewire, WirePlumber with every hardware monitor disabled,
+  pipewire-pulse; config and state in the runtime dir) with two virtual
+  outputs and a virtual microphone, each kept busy with a silent stream
+  because idle virtual devices ignore volume changes.
 - **Brightness**: reads `/sys/class/backlight/*` and writes through logind's
   `Session.SetBrightness` on the system bus, so no udev rule or setuid
   helper is needed. With no backlight (VMs, desktops) the keys do nothing.
@@ -475,9 +484,9 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
 3. **Shell services** — notifications, OSD, lock/idle, polkit agent, screenshots, SNI tray.
    *(done; not yet tried on a real seat)*
 4. **Settings app** — `tetra-settings` (Super+I, or the launcher), an editor
-   for config.json. *(in progress: pages for appearance, displays, taskbar
-   pins, keyboard, mouse & touchpad, lock & power, apps & startup, about;
-   snap zones and window memory; next: sound)*
+   for config.json. *(done: appearance, displays, snap zones and window
+   memory, sound, taskbar pins, keyboard, mouse & touchpad, lock & power,
+   apps & startup, about; not yet tried on a real seat)*
 5. **Apps and portal** — terminal, system monitor, portal backend.
 6. **Final pieces** — greeter, animations, polish.
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app.hpp"
+#include "audio.hpp"
 #include "config_edit.hpp"
 #include "desktop_entry.hpp"
 #include "displays.hpp"
@@ -41,7 +42,7 @@ public:
 private:
     using Edit = std::function<std::expected<void, std::string>(config::Document&)>;
 
-    enum class Page { Appearance, Displays, Zones, Taskbar, Keyboard, Mouse, Power, Apps, About };
+    enum class Page { Appearance, Displays, Zones, Sound, Taskbar, Keyboard, Mouse, Power, Apps, About };
     struct PageInfo {
         Page page;
         const char* id;
@@ -58,6 +59,11 @@ private:
     void page_appearance();
     void page_displays();
     void page_zones();
+    void page_sound();
+    // Sound page helpers (sound_page.cpp).
+    bool mute_button(const char* id, bool muted, const char* icon_on, const char* icon_off);
+    std::optional<std::string> device_combo(const char* id, const std::vector<Audio::Device>& devices,
+                                            const std::string& current, const char* none);
     // Snap zone layouts as thumbnails; the one clicked, if any (zones_page.cpp).
     std::optional<std::string> layout_picker(const char* id, const std::string& current);
     void page_taskbar();
@@ -98,6 +104,7 @@ private:
     DesktopDatabase applications_;
     Xkb xkb_;
     Displays displays_;
+    Audio audio_;
     std::vector<std::string> font_families_;
     std::unique_ptr<ui::ToplevelWindow> window_;
     Page page_ = Page::Appearance;
