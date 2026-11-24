@@ -40,6 +40,7 @@ tetra_wayland_protocols(tetra_toolkit CLIENT
     "${WAYLAND_PROTOCOLS_DIR}/staging/ext-session-lock/ext-session-lock-v1.xml"
     "${WAYLAND_PROTOCOLS_DIR}/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml"
     "${WLR_PROTOCOLS_DIR}/wlr-layer-shell-unstable-v1.xml"
+    "${WLR_PROTOCOLS_DIR}/wlr-output-management-unstable-v1.xml"
     "${WLR_PROTOCOLS_DIR}/wlr-output-power-management-unstable-v1.xml"
     "${WLR_PROTOCOLS_DIR}/wlr-screencopy-unstable-v1.xml"
 )

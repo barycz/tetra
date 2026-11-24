@@ -3,6 +3,7 @@
 #include "app.hpp"
 #include "config_edit.hpp"
 #include "desktop_entry.hpp"
+#include "displays.hpp"
 #include "icons.hpp"
 #include "window.hpp"
 #include "xkb.hpp"
@@ -10,6 +11,7 @@
 #include <imgui.h>
 
 #include <array>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -17,6 +19,14 @@
 #include <vector>
 
 namespace tetra::settings {
+
+// A display's area in layout pixels (Displays page).
+struct Rect {
+    double x = 0;
+    double y = 0;
+    double w = 0;
+    double h = 0;
+};
 
 // tetra-settings: an editor for config.json. Every change is written at
 // once (keeping the user's comments) and the whole desktop picks it up
@@ -31,7 +41,7 @@ public:
 private:
     using Edit = std::function<std::expected<void, std::string>(config::Document&)>;
 
-    enum class Page { Appearance, Taskbar, Keyboard, Power, Apps, About };
+    enum class Page { Appearance, Displays, Taskbar, Keyboard, Power, Apps, About };
     struct PageInfo {
         Page page;
         const char* id;
@@ -46,6 +56,7 @@ private:
 
     // Pages (pages.cpp).
     void page_appearance();
+    void page_displays();
     void page_taskbar();
     void page_keyboard();
     void page_power();
@@ -53,7 +64,19 @@ private:
     void page_about();
 
     // Writes one change; shows the error if the file cannot take it.
-    void save(const Edit& edit);
+    bool save(const Edit& edit);
+
+    // Displays (display_page.cpp). Changes are JSON members per display
+    // name, e.g. {"scale", "1.5"}; they can be reverted for a few seconds.
+    using DisplayChanges = std::vector<std::pair<std::string, std::string>>;
+    [[nodiscard]] std::string display_members(const std::string& name, const DisplayChanges& changes) const;
+    void change_displays(const std::vector<std::pair<std::string, DisplayChanges>>& changes);
+    void place_display(const std::string& name, const Rect& dropped);
+    void tick_revert();
+    void keep_display_changes();
+    void revert_display_changes();
+    void draw_revert_banner();
+    void display_arrangement();
     // Layout helpers: a titled card of rows, each with a label (and an
     // optional hint) on the left and its control on the right.
     void begin_card(const char* title);
@@ -68,6 +91,7 @@ private:
     ui::IconCache icons_;
     DesktopDatabase applications_;
     Xkb xkb_;
+    Displays displays_;
     std::vector<std::string> font_families_;
     std::unique_ptr<ui::ToplevelWindow> window_;
     Page page_ = Page::Appearance;
@@ -87,6 +111,26 @@ private:
     std::array<char, 256> autostart_buffer_{};
     std::array<char, 256> shell_buffer_{};
     std::array<char, 256> test_buffer_{};
+    // Displays: a change waiting to be kept, and a display being dragged.
+    struct Revert {
+        std::optional<std::string> before; // the file before the first change (none: no file)
+        std::string after;                 // what the last change wrote
+        std::chrono::steady_clock::time_point deadline;
+    };
+    std::optional<Revert> revert_;
+    std::optional<ui::App::TimerId> revert_timer_;
+    struct Mapping { // layout -> screen
+        double scale = 1;
+        double x = 0;
+        double y = 0;
+    };
+    struct Drag {
+        std::string name;
+        ImVec2 start_mouse;
+        Rect start;
+        Mapping mapping;
+    };
+    std::optional<Drag> drag_;
     int card_rows_ = 0;
     float row_bottom_ = 0; // where the current row's label ends
 };

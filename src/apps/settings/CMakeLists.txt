@@ -1,4 +1,6 @@
 add_executable(tetra-settings
+    display_page.cpp
+    displays.cpp
     main.cpp
     pages.cpp
     settings.cpp

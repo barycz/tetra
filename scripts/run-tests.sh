@@ -22,9 +22,12 @@ else
 fi
 for test in "$root"/tests/headless/*.sh; do
     name="$(basename "$test" .sh)"
-    # A scenario may ask for a longer wait with a "# wait: SECS" header line.
+    # A scenario may ask for a longer wait with a "# wait: SECS" header line,
+    # and for more displays with "# outputs: N".
     wait="$(sed -n 's/^# wait: *\([0-9.]*\)$/\1/p' "$test" | head -n 1)"
-    "$root/scripts/run-headless.sh" -p "$preset" -w "${wait:-6}" -o "$out/$name.png" -- "$test" >/dev/null 2>&1
+    outputs="$(sed -n 's/^# outputs: *\([0-9]*\)$/\1/p' "$test" | head -n 1)"
+    "$root/scripts/run-headless.sh" -p "$preset" -w "${wait:-6}" -n "${outputs:-1}" -o "$out/$name.png" \
+        -- "$test" >/dev/null 2>&1
     status=$?
     log="$out/$name.log"
     problems=$(grep -cE "ERROR: (Address|Leak|UndefinedBehavior)Sanitizer|runtime error:|Assertion .* failed|Segmentation fault" "$log")

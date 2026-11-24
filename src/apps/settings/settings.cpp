@@ -46,6 +46,7 @@ std::vector<std::string> list_font_families() {
 const std::vector<Settings::PageInfo>& Settings::pages() {
     static const std::vector<PageInfo> list = {
         {Page::Appearance, "appearance", "Appearance", "preferences-desktop-appearance-symbolic"},
+        {Page::Displays, "displays", "Displays", "video-display-symbolic"},
         {Page::Taskbar, "taskbar", "Taskbar", "view-app-grid-symbolic"},
         {Page::Keyboard, "keyboard", "Keyboard", "input-keyboard-symbolic"},
         {Page::Power, "power", "Lock & power", "system-lock-screen-symbolic"},
@@ -55,7 +56,7 @@ const std::vector<Settings::PageInfo>& Settings::pages() {
     return list;
 }
 
-Settings::Settings(ui::App& app) : app_(app), icons_(app) {
+Settings::Settings(ui::App& app) : app_(app), icons_(app), displays_(app) {
     applications_.load();
     xkb_.load();
     font_families_ = list_font_families();
@@ -66,6 +67,7 @@ Settings::Settings(ui::App& app) : app_(app), icons_(app) {
     window_ = std::make_unique<ui::ToplevelWindow>(
         app_, ui::ToplevelWindow::Options{.title = "Settings", .width = 980, .height = 680});
     window_->on_draw = [this] { draw(); };
+    displays_.on_changed = [this] { window_->request_redraw(); };
     app_.on_config_changed = [this] {
         // A reload succeeded, so the file loads again.
         load_error_.clear();
@@ -82,10 +84,11 @@ void Settings::show_page(std::string_view id) {
     window_->request_redraw();
 }
 
-void Settings::save(const Edit& edit) {
+bool Settings::save(const Edit& edit) {
     auto result = config::edit_file(config::active_file(), edit);
     error_ = result ? std::string() : result.error();
     window_->request_redraw();
+    return result.has_value();
 }
 
 void Settings::draw() {
@@ -117,9 +120,13 @@ void Settings::draw() {
         }
     }
     draw_status();
+    draw_revert_banner(); // on every page: the countdown runs on any page
     switch (page_) {
     case Page::Appearance:
         page_appearance();
+        break;
+    case Page::Displays:
+        page_displays();
         break;
     case Page::Taskbar:
         page_taskbar();
@@ -301,12 +308,13 @@ bool Settings::toggle(const char* id, bool value) {
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     const bool clicked = ImGui::InvisibleButton(id, size);
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImU32 track = value ? ui::to_imu32(p.accent) : ui::to_imu32(p.separator);
+    // GetColorU32 applies the style's alpha: dimmed inside BeginDisabled().
+    const ImU32 track = ImGui::GetColorU32(ui::to_imvec4(value ? p.accent : p.separator));
     dl->AddRectFilled(pos, {pos.x + size.x, pos.y + size.y}, track, size.y / 2);
     const float knob = size.y / 2 - 3;
     const float cx = value ? pos.x + size.x - knob - 3 : pos.x + knob + 3;
     dl->AddCircleFilled({cx, pos.y + (size.y / 2)}, knob,
-                        value ? ui::to_imu32(p.accent_text) : ui::to_imu32(p.text));
+                        ImGui::GetColorU32(ui::to_imvec4(value ? p.accent_text : p.text)));
     return clicked;
 }
 

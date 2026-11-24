@@ -44,12 +44,21 @@ public:
     std::expected<void, std::string> set_json(Path path, std::string_view json);
     // Removes the member (and its comma); missing members are fine.
     std::expected<void, std::string> erase(Path path);
+    // One object in an array of objects, picked by a string member: in
+    // {"outputs"}, the object whose "name" is "DP-1". `members` (a JSON
+    // object) is merged into it; null removes a member. A missing object is
+    // appended as {key: id, members...}, a missing array created.
+    std::expected<void, std::string> merge_element(Path array, std::string_view key, std::string_view id,
+                                                   std::string_view members);
 
 private:
     std::expected<void, std::string> set_value(Path path, const void* value); // nlohmann::json*
 
     std::string text_;
 };
+
+// Replaces the file's contents atomically (temporary file + rename).
+std::expected<void, std::string> write_file(const std::filesystem::path& path, std::string_view text);
 
 // Reads `path` (or the template if it does not exist), applies `edit`,
 // checks that the result is still a valid configuration, and writes it

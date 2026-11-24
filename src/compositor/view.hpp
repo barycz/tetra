@@ -60,7 +60,8 @@ public:
     void request_size(int width, int height) {
         configure({.x = content_.x, .y = content_.y, .width = width, .height = height});
     }
-    // Re-fit a maximized/fullscreen view after its output's area changed.
+    // After its output's area changed: re-fit a maximized/fullscreen view;
+    // keep a normal one inside the area (shrinking it if needed).
     void refit();
     // Re-render decorations (theme, scale or config changed).
     void update_decoration();

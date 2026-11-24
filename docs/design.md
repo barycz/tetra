@@ -162,8 +162,16 @@ tetra's file dialog. Xwayland is supported for legacy X11 apps.
   surrounding indentation (inline objects stay inline). Comments, order and
   formatting elsewhere stay byte for byte. `config::edit_file` refuses to touch
   a file that does not load, never writes a result the loader would reject,
-  and saves atomically (temporary file + rename). Unit tests:
+  and saves atomically (temporary file + rename). `merge_element` edits one
+  object of an array by a key (`outputs` by `name`). Unit tests:
   `tests/unit/config_edit_test.cpp`.
+- Displays are no exception. The compositor publishes heads, modes and the
+  layout through wlr-output-management (Settings and wlr-randr read it), but
+  refuses requests to apply or test a configuration: changes go into
+  `outputs`. Settings' Displays page writes the entry for one connector
+  (starting from the `"*"` entry if it had none) and asks to keep the
+  change; after 15 s, or on Revert, it puts back the file as it was, unless
+  something else changed it meanwhile.
 
 ## Scope
 
@@ -239,6 +247,10 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
 - `LayerSurface` + `Output::arrange_layers()` — layer-shell placement and the
   usable area (what is left after exclusive zones such as the bar).
   Maximized windows fill the usable area, fullscreen windows the output.
+  When the usable area shrinks (resolution, scale, a bar), normal windows
+  are moved, and shrunk if needed, to stay inside it. When `outputs` moves a
+  display in the layout, its windows move with it; windows are fitted only
+  once every display is in place.
 - Scene layers, bottom to top: background, bottom, windows, top, fullscreen,
   unmanaged (X11 menus), overlay.
 - Every object that can be hit carries a `SceneDescriptor` in `node.data`;
@@ -425,8 +437,8 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
 3. **Shell services** — notifications, OSD, lock/idle, polkit agent, screenshots, SNI tray.
    *(done; not yet tried on a real seat)*
 4. **Settings app** — `tetra-settings` (Super+I, or the launcher), an editor
-   for config.json. *(in progress: pages for appearance, taskbar pins,
-   keyboard, lock & power, apps & startup, about; next: displays, mouse &
+   for config.json. *(in progress: pages for appearance, displays, taskbar
+   pins, keyboard, lock & power, apps & startup, about; next: mouse &
    touchpad, sound)*
 5. **Apps and portal** — terminal, system monitor, portal backend.
 6. **Final pieces** — greeter, animations, polish.

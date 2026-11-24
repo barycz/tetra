@@ -6,6 +6,7 @@
 # Usage: scripts/run-headless.sh [options] [--] [command...]
 #   -o FILE    screenshot path        (default: build/screenshots/headless.png)
 #   -s WxH     output size            (default: 1280x720)
+#   -n COUNT   number of outputs      (default: 1; side by side)
 #   -w SECS    wait before screenshot (default: 2)
 #   -p PRESET  build preset to run    (default: debug)
 #   -c FILE    tetra config file      (default: an empty config, i.e. defaults)
@@ -18,20 +19,22 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 out="$root/build/screenshots/headless.png"
 size=1280x720
+outputs=1
 wait_secs=2
 preset=debug
 config=""
 debug=0
 
-while getopts "o:s:w:p:c:dh" opt; do
+while getopts "o:s:n:w:p:c:dh" opt; do
     case "$opt" in
         o) out="$OPTARG" ;;
         s) size="$OPTARG" ;;
+        n) outputs="$OPTARG" ;;
         w) wait_secs="$OPTARG" ;;
         p) preset="$OPTARG" ;;
         c) config="$OPTARG" ;;
         d) debug=1 ;;
-        *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+        *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
     esac
 done
 shift $((OPTIND - 1))
@@ -49,7 +52,7 @@ runtime="$(mktemp -d /tmp/tetra-headless.XXXXXX)" # mode 0700, as XDG requires
 
 unset WAYLAND_DISPLAY DISPLAY
 export XDG_RUNTIME_DIR="$runtime"
-export WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_LIBINPUT_NO_DEVICES=1
+export WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS="$outputs" WLR_LIBINPUT_NO_DEVICES=1
 export WLR_RENDERER="${WLR_RENDERER:-gles2}"
 export TETRA_OUTPUT_SIZE="$size"
 export LSAN_OPTIONS="${LSAN_OPTIONS:-suppressions=$root/scripts/lsan.supp:print_suppressions=0}"

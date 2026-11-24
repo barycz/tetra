@@ -15,10 +15,12 @@
 #include <linux/input-event-codes.h>
 #include <wayland-client.h>
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <print>
 #include <span>
 #include <string_view>
@@ -63,6 +65,13 @@ Size output_size() {
     if (x != std::string_view::npos) {
         std::from_chars(text.data(), text.data() + x, size.width);
         std::from_chars(text.data() + x + 1, text.data() + text.size(), size.height);
+    }
+    // Absolute motion spans the whole layout: headless outputs start side
+    // by side, left to right.
+    if (const char* outputs = std::getenv("WLR_HEADLESS_OUTPUTS")) { // NOLINT(concurrency-mt-unsafe)
+        uint32_t count = 1;
+        std::from_chars(outputs, outputs + std::strlen(outputs), count);
+        size.width *= std::max<uint32_t>(1, count);
     }
     return size;
 }

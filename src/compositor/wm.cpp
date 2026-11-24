@@ -50,6 +50,9 @@ wlr_scene_tree* Server::layer_tree(zwlr_layer_shell_v1_layer layer) const {
 }
 
 void Server::handle_usable_area_changed(Output& output) {
+    if (arranging_outputs_) {
+        return; // apply_config fits every window afterwards
+    }
     for (const auto& view : views_) {
         if (view->mapped() && view->output() == output.wlr()) {
             view->refit();
@@ -62,6 +65,7 @@ void Server::destroy_output(Output& output) {
         session_lock_->handle_output_destroyed(output.wlr());
     }
     std::erase_if(outputs_, [&](const auto& ptr) { return ptr.get() == &output; });
+    schedule_output_manager_update();
     // Rescue windows that were only visible on the removed output.
     const wlr_box area = usable_area_at_cursor();
     for (const auto& view : views_) {

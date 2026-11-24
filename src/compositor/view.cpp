@@ -258,6 +258,30 @@ void View::refit() {
         const wlr_box box = full_area();
         move_to(box.x, box.y);
         configure(box);
+    } else {
+        // The display got smaller (resolution, scale, a bar): keep the
+        // window on it, smaller if it no longer fits.
+        const wlr_box area = usable_area();
+        if (wlr_box_empty(&area)) {
+            return;
+        }
+        wlr_box outer = frame();
+        const int left = content_.x - outer.x; // decoration extents
+        const int top = content_.y - outer.y;
+        const int extra_width = outer.width - content_.width;
+        const int extra_height = outer.height - content_.height;
+        const int width = std::min(content_.width, area.width - extra_width);
+        const int height = std::min(content_.height, area.height - extra_height);
+        if (width != content_.width || height != content_.height) {
+            request_size(width, height);
+            outer.width = width + extra_width;
+            outer.height = height + extra_height;
+        }
+        const int x = std::clamp(outer.x, area.x, area.x + area.width - outer.width);
+        const int y = std::clamp(outer.y, area.y, area.y + area.height - outer.height);
+        if (x != outer.x || y != outer.y) {
+            move_to(x + left, y + top);
+        }
     }
 }
 

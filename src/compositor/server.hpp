@@ -84,6 +84,8 @@ public:
     void handle_layer_changed(LayerSurface& surface);
     void handle_layer_destroyed(LayerSurface& surface);
     void destroy_output(Output& output);
+    // Publishes the outputs' state (wlr-output-management) once idle.
+    void schedule_output_manager_update();
 
     // --- windows & focus (wm.cpp) --------------------------------------------
     void focus_view(View* view);
@@ -215,6 +217,12 @@ private:
     wl_event_source* config_source_ = nullptr;
 
     std::vector<std::unique_ptr<Output>> outputs_;
+    // Displays as clients (Settings, wlr-randr) see them; read-only, since
+    // config.json decides the layout.
+    wlr_output_manager_v1* output_manager_ = nullptr;
+    wl_event_source* output_manager_idle_ = nullptr;
+    void update_output_manager();
+    bool arranging_outputs_ = false; // applying "outputs": windows are fitted after
     std::vector<std::unique_ptr<Keyboard>> keyboards_;
     std::vector<std::unique_ptr<View>> views_;
     std::vector<View*> focus_order_; // mapped views, most recently focused first
@@ -271,6 +279,8 @@ private:
     Listener request_set_primary_selection_;
     Listener new_idle_inhibitor_;
     Listener output_power_set_mode_;
+    Listener output_manager_apply_;
+    Listener output_manager_test_;
     Listener layout_change_;
 };
 

@@ -63,7 +63,12 @@ the error is logged by each component.
 
 Settings (Super+I) edits this file in place: it changes only the values you
 change and keeps your comments and layout. It leaves a file with errors
-alone until you fix it.
+alone until you fix it. Its Displays page writes one `outputs` entry per
+display (by connector name) and goes back to the previous file if you do
+not keep a change within 15 seconds.
+
+Tools that change displays through wlr-output-management (wlr-randr,
+kanshi) can list them but not change them: `outputs` is the one place.
 
 ## Reference
 

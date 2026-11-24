@@ -187,6 +187,46 @@ void edit_file_round_trip() {
     std::filesystem::remove_all(dir);
 }
 
+void merge_elements() {
+    const std::string base = R"({
+  "outputs": [
+    { "name": "DP-1", "scale": 1.25, "mode": "2560x1440" }, // the big one
+    { "name": "*", "scale": 1 }
+  ]
+}
+)";
+    Document doc(base);
+    check(doc.merge_element({"outputs"}, "name", "DP-1", R"({"scale": 1.5, "mode": null, "position": [0, 0]})")
+              .has_value(),
+          "merge existing");
+    check(doc.merge_element({"outputs"}, "name", "HDMI-A-1", R"({"enabled": false})").has_value(), "append");
+    check_text(doc.text(), R"({
+  "outputs": [
+    { "name": "DP-1", "scale": 1.5, "position": [0, 0] }, // the big one
+    { "name": "*", "scale": 1 },
+    { "name": "HDMI-A-1", "enabled": false }
+  ]
+}
+)");
+
+    Document fresh("{\n  \"terminal\": \"foot\"\n}\n");
+    check(fresh.merge_element({"outputs"}, "name", "Virtual-1", R"({"scale": 2, "mode": null})").has_value(),
+          "create array");
+    check_text(fresh.text(), R"({
+  "terminal": "foot",
+  "outputs": [
+    { "name": "Virtual-1", "scale": 2 }
+  ]
+}
+)");
+    check(tetra::config::parse_text(fresh.text()).has_value(), "result parses");
+
+    Document inline_doc(R"({ "outputs": [] })");
+    check(inline_doc.merge_element({"outputs"}, "name", "A", R"({"scale": 2})").has_value(), "inline empty");
+    check(inline_doc.merge_element({"outputs"}, "name", "B", R"({})").has_value(), "inline append");
+    check_text(inline_doc.text(), R"({ "outputs": [{ "name": "A", "scale": 2 }, { "name": "B" }] })");
+}
+
 void color_hex() {
     check(tetra::config::Color::parse("#4c8dff")->hex() == "#4c8dff", "hex round trip");
     check(tetra::config::Color::parse("#00000080")->hex() == "#00000080", "hex alpha");
@@ -205,6 +245,7 @@ int main() {
     block_comments_are_skipped();
     malformed_is_an_error();
     edit_file_round_trip();
+    merge_elements();
     color_hex();
     if (failures == 0) {
         std::println("tetra-unit-tests: all passed");

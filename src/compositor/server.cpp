@@ -75,8 +75,11 @@ Server::~Server() {
           &request_cursor_shape_, &cursor_motion_, &cursor_motion_absolute_, &cursor_button_,
           &cursor_axis_, &cursor_frame_, &request_cursor_, &pointer_focus_change_,
           &request_set_selection_, &request_set_primary_selection_, &new_idle_inhibitor_,
-          &output_power_set_mode_, &layout_change_}) {
+          &output_power_set_mode_, &output_manager_apply_, &output_manager_test_, &layout_change_}) {
         listener->disconnect();
+    }
+    if (output_manager_idle_ != nullptr) {
+        wl_event_source_remove(output_manager_idle_);
     }
     for (wl_event_source* source : signal_sources_) {
         wl_event_source_remove(source);
@@ -162,6 +165,7 @@ std::expected<void, std::string> Server::init() {
         if (session_lock_) {
             session_lock_->handle_layout_changed();
         }
+        schedule_output_manager_update();
     });
 
     init_protocols();
@@ -257,6 +261,19 @@ void Server::init_protocols() {
             idle_inhibitors_.push_back(std::move(entry));
             update_idle_inhibit();
         });
+    // Displays, their modes and the layout, for Settings and tools like
+    // wlr-randr. Changes go through config.json, which stays the single
+    // source of truth, so requests to apply (or test) one are refused.
+    output_manager_ = wlr_output_manager_v1_create(display);
+    auto refuse = [](wlr_output_configuration_v1* request) {
+        log::info("refused a display configuration request: displays are set in config.json "
+                  "(\"outputs\", or Settings > Displays)");
+        wlr_output_configuration_v1_send_failed(request);
+        wlr_output_configuration_v1_destroy(request);
+    };
+    output_manager_apply_.connect<wlr_output_configuration_v1>(output_manager_->events.apply, refuse);
+    output_manager_test_.connect<wlr_output_configuration_v1>(output_manager_->events.test, refuse);
+
     // Screens off/on (the shell blanks them when idle).
     auto* output_power = wlr_output_power_manager_v1_create(display);
     output_power_set_mode_.connect<wlr_output_power_v1_set_mode_event>(
@@ -497,8 +514,35 @@ void Server::apply_config(const config::Config& previous) {
         }
     }
     if (config_.outputs != previous.outputs) {
+        // Windows move with their display when it moves in the layout, and
+        // are fitted into it once every display is in place (in between,
+        // displays may overlap and a window's display is ambiguous).
+        struct Placement {
+            View* view;
+            wlr_output* output;
+            wlr_box before;
+        };
+        std::vector<Placement> placements;
+        for (const auto& view : views_) {
+            wlr_output* output = view->mapped() ? view->output() : nullptr;
+            if (output != nullptr) {
+                wlr_box box{};
+                wlr_output_layout_get_box(output_layout, output, &box);
+                placements.push_back({view.get(), output, box});
+            }
+        }
+        arranging_outputs_ = true;
         for (const auto& output : outputs_) {
             output->apply_config(config_.output(output->wlr()->name));
+        }
+        arranging_outputs_ = false;
+        for (const auto& [view, output, before] : placements) {
+            wlr_box after{};
+            wlr_output_layout_get_box(output_layout, output, &after);
+            if (!wlr_box_empty(&before) && !wlr_box_empty(&after) && (after.x != before.x || after.y != before.y)) {
+                view->move_to(view->content().x + after.x - before.x, view->content().y + after.y - before.y);
+            }
+            view->refit();
         }
     }
     if (config_.desktop != previous.desktop) {
@@ -629,6 +673,35 @@ void Server::reap_children() {
 
 void Server::handle_new_output(wlr_output* wlr_output) {
     outputs_.push_back(std::make_unique<Output>(*this, wlr_output));
+    schedule_output_manager_update(); // also when it starts disabled
+}
+
+void Server::schedule_output_manager_update() {
+    if (output_manager_idle_ != nullptr || output_manager_ == nullptr || terminating_) {
+        return;
+    }
+    output_manager_idle_ = wl_event_loop_add_idle(
+        wl_display_get_event_loop(display),
+        [](void* data) { static_cast<Server*>(data)->update_output_manager(); }, this);
+}
+
+void Server::update_output_manager() {
+    output_manager_idle_ = nullptr;
+    wlr_output_configuration_v1* state = wlr_output_configuration_v1_create();
+    for (const auto& output : outputs_) {
+        wlr_output_configuration_head_v1* head = wlr_output_configuration_head_v1_create(state, output->wlr());
+        if (head == nullptr) {
+            continue;
+        }
+        // In use means in the layout: a blanked screen (idle) is still on.
+        wlr_output_layout_output* placed = wlr_output_layout_get(output_layout, output->wlr());
+        head->state.enabled = placed != nullptr;
+        if (placed != nullptr) {
+            head->state.x = placed->x;
+            head->state.y = placed->y;
+        }
+    }
+    wlr_output_manager_v1_set_configuration(output_manager_, state); // takes ownership
 }
 
 void Server::handle_new_layer_surface(wlr_layer_surface_v1* layer_surface) {
