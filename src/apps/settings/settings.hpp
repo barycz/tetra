@@ -41,7 +41,7 @@ public:
 private:
     using Edit = std::function<std::expected<void, std::string>(config::Document&)>;
 
-    enum class Page { Appearance, Displays, Taskbar, Keyboard, Power, Apps, About };
+    enum class Page { Appearance, Displays, Taskbar, Keyboard, Mouse, Power, Apps, About };
     struct PageInfo {
         Page page;
         const char* id;
@@ -59,6 +59,9 @@ private:
     void page_displays();
     void page_taskbar();
     void page_keyboard();
+    void page_mouse();
+    // A -1..1 pointer speed slider for config key `section`.speed.
+    void speed_slider(const char* id, const char* section, double value, std::optional<double>& editing);
     void page_power();
     void page_apps();
     void page_about();
@@ -103,6 +106,8 @@ private:
     std::optional<int> border_width_;
     std::optional<int> repeat_delay_;
     std::optional<int> repeat_rate_;
+    std::optional<double> mouse_speed_;
+    std::optional<double> touchpad_speed_;
     // Text being typed (fields show the config value while not focused).
     std::array<char, 256> filter_buffer_{}; // search in combos
     std::array<char, 256> accent_buffer_{};

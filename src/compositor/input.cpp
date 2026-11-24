@@ -4,6 +4,7 @@
 #include "keyboard.hpp"
 #include "layer_surface.hpp"
 #include "log.hpp"
+#include "pointer.hpp"
 #include "server.hpp"
 #include "session_lock.hpp"
 #include "shell_protocol.hpp"
@@ -126,6 +127,7 @@ void Server::handle_new_input(wlr_input_device* device) {
         keyboards_.push_back(std::make_unique<Keyboard>(*this, device));
         break;
     case WLR_INPUT_DEVICE_POINTER:
+        pointers_.push_back(std::make_unique<Pointer>(*this, device));
         wlr_cursor_attach_input_device(cursor, device);
         break;
     default:
@@ -137,6 +139,10 @@ void Server::handle_new_input(wlr_input_device* device) {
 void Server::destroy_keyboard(Keyboard& keyboard) {
     std::erase_if(keyboards_, [&](const auto& ptr) { return ptr.get() == &keyboard; });
     update_seat_capabilities();
+}
+
+void Server::destroy_pointer(Pointer& pointer) {
+    std::erase_if(pointers_, [&](const auto& ptr) { return ptr.get() == &pointer; });
 }
 
 void Server::update_seat_capabilities() {

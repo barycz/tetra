@@ -331,6 +331,13 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
 - **Brightness**: reads `/sys/class/backlight/*` and writes through logind's
   `Session.SetBrightness` on the system bus, so no udev rule or setuid
   helper is needed. With no backlight (VMs, desktops) the keys do nothing.
+- **Mice and touchpads**: every pointer device gets a `Pointer`, which
+  sets libinput's speed, acceleration profile, natural scrolling,
+  left-handed buttons and, for touchpads (devices that can tap), tapping,
+  disable-while-typing, scroll and click methods from config `mouse` and
+  `touchpad`, on plug-in and on reload. Settings a device lacks are skipped;
+  with no `touchpad.click` the device's own default is restored. Virtual
+  pointers and nested/headless backends have nothing to set.
 - **Pointer refocus**: when a surface maps, unmaps or is minimized under a
   stationary cursor, the compositor re-runs pointer focus on idle, so the
   surface now under the cursor gets enter/leave without waiting for the
@@ -414,7 +421,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   (it calls the shell's agent like polkitd would); the helper is
   `tests/tools/fake-polkit-helper`, which accepts the same test password.
   Screenshots go to a private `$XDG_PICTURES_DIR`. `tetra-pointer` gives
-  absolute moves, clicks and drags (wlrctl cannot drag). wlroots releases a
+  absolute moves, clicks, drags (wlrctl cannot drag) and wheel notches. wlroots releases a
   virtual pointer's buttons when it goes away, so `hold` keeps running.
   `tetra-tray-item` is a StatusNotifierItem with a dbusmenu (or
   libappindicator-style with `--appindicator`). It reports what it receives
@@ -438,8 +445,8 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
    *(done; not yet tried on a real seat)*
 4. **Settings app** — `tetra-settings` (Super+I, or the launcher), an editor
    for config.json. *(in progress: pages for appearance, displays, taskbar
-   pins, keyboard, lock & power, apps & startup, about; next: mouse &
-   touchpad, sound)*
+   pins, keyboard, mouse & touchpad, lock & power, apps & startup, about;
+   next: sound)*
 5. **Apps and portal** — terminal, system monitor, portal backend.
 6. **Final pieces** — greeter, animations, polish.
 

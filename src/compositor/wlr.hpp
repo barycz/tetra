@@ -22,6 +22,7 @@
 #include <sys/types.h>
 
 #include <drm_fourcc.h>
+#include <libinput.h>
 #include <pixman.h>
 #include <wayland-server-core.h>
 #include <wayland-server-protocol.h>
@@ -49,6 +50,7 @@ extern "C" {
 
 #include <wlr/backend.h>
 #include <wlr/backend/session.h>
+#include <wlr/backend/libinput.h>
 #include <wlr/interfaces/wlr_buffer.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/wlr_renderer.h>

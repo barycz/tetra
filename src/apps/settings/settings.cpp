@@ -49,6 +49,7 @@ const std::vector<Settings::PageInfo>& Settings::pages() {
         {Page::Displays, "displays", "Displays", "video-display-symbolic"},
         {Page::Taskbar, "taskbar", "Taskbar", "view-app-grid-symbolic"},
         {Page::Keyboard, "keyboard", "Keyboard", "input-keyboard-symbolic"},
+        {Page::Mouse, "mouse", "Mouse & touchpad", "input-mouse-symbolic"},
         {Page::Power, "power", "Lock & power", "system-lock-screen-symbolic"},
         {Page::Apps, "apps", "Apps & startup", "application-x-executable-symbolic"},
         {Page::About, "about", "About", "help-about-symbolic"},
@@ -133,6 +134,9 @@ void Settings::draw() {
         break;
     case Page::Keyboard:
         page_keyboard();
+        break;
+    case Page::Mouse:
+        page_mouse();
         break;
     case Page::Power:
         page_power();

@@ -10,6 +10,7 @@
 #include <source_location>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include <unistd.h>
 
@@ -234,6 +235,41 @@ void color_hex() {
 
 } // namespace
 
+void mouse_and_touchpad() {
+    using tetra::config::Touchpad;
+    auto config = tetra::config::parse_text("{}");
+    check(config.has_value(), "empty config loads");
+    check(config->mouse.speed == 0 && config->mouse.acceleration && !config->mouse.natural_scroll &&
+              !config->mouse.left_handed,
+          "mouse defaults");
+    check(config->touchpad.tap_to_click && config->touchpad.natural_scroll &&
+              config->touchpad.disable_while_typing && config->touchpad.scroll == Touchpad::Scroll::TwoFinger &&
+              !config->touchpad.click,
+          "touchpad defaults");
+
+    config = tetra::config::parse_text(R"({
+      "mouse": { "speed": -0.5, "acceleration": false, "left_handed": true },
+      "touchpad": { "speed": 1, "tap_to_click": false, "scroll": "edge", "click": "fingers" }
+    })");
+    check(config.has_value(), "mouse and touchpad load");
+    check(config->mouse.speed == -0.5 && !config->mouse.acceleration && config->mouse.left_handed, "mouse values");
+    check(config->touchpad.speed == 1 && !config->touchpad.tap_to_click &&
+              config->touchpad.scroll == Touchpad::Scroll::Edge && config->touchpad.click == Touchpad::Click::Fingers,
+          "touchpad values");
+
+    auto error = [](std::string_view text) {
+        auto c = tetra::config::parse_text(text);
+        return c ? std::string() : c.error();
+    };
+    check(error(R"({"mouse": {"speed": 2}})").contains("'mouse.speed' must be between -1"), "speed range");
+    check(error(R"({"touchpad": {"scroll": "three_finger"}})").contains("'touchpad.scroll' must be"),
+          "scroll values");
+    check(error(R"({"touchpad": {"click": "buttons"}})").contains("'touchpad.click' must be"), "click values");
+    std::vector<std::string> warnings;
+    config = tetra::config::parse_text(R"({"mouse": {"sped": 1}})", &warnings);
+    check(config.has_value() && warnings.size() == 1 && warnings[0].contains("mouse.sped"), "unknown key warns");
+}
+
 int main() {
     replace_keeps_comments();
     insert_after_trailing_comment();
@@ -247,6 +283,7 @@ int main() {
     edit_file_round_trip();
     merge_elements();
     color_hex();
+    mouse_and_touchpad();
     if (failures == 0) {
         std::println("tetra-unit-tests: all passed");
     }

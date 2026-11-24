@@ -92,6 +92,14 @@ public:
                                                : WL_POINTER_BUTTON_STATE_RELEASED);
         frame();
     }
+    // One mouse wheel notch; positive scrolls down.
+    void wheel(int direction) {
+        constexpr double kNotch = 15; // wl_pointer axis units per notch, as libinput sends
+        zwlr_virtual_pointer_v1_axis_source(pointer_, WL_POINTER_AXIS_SOURCE_WHEEL);
+        zwlr_virtual_pointer_v1_axis_discrete(pointer_, now(), WL_POINTER_AXIS_VERTICAL_SCROLL,
+                                              wl_fixed_from_double(kNotch * direction), direction);
+        frame();
+    }
 
 private:
     void frame() {
@@ -127,11 +135,11 @@ int main(int argc, char* argv[]) {
     const std::string_view command = args.empty() ? "" : args[0];
     const auto values = numbers(args.empty() ? args : args.subspan(1));
     const bool point = command == "move" || command == "click" || command == "down" || command == "up";
-    const bool valid = (point && values.size() == 2) ||
+    const bool valid = (point && values.size() == 2) || (command == "scroll" && values.size() == 3) ||
                        ((command == "drag" || command == "hold") && values.size() == 4);
     if (!valid) {
-        std::println(stderr,
-                     "usage: tetra-pointer move|click|down|up X Y | drag|hold X1 Y1 X2 Y2");
+        std::println(stderr, "usage: tetra-pointer move|click|down|up X Y | scroll X Y NOTCHES | "
+                             "drag|hold X1 Y1 X2 Y2");
         return 2;
     }
 
@@ -159,6 +167,11 @@ int main(int argc, char* argv[]) {
     } else if (command == "click") {
         pointer.button(true);
         pointer.button(false);
+    } else if (command == "scroll") { // NOTCHES > 0 scrolls down
+        const int notches = static_cast<int>(values[2]);
+        for (int i = 0; i < std::abs(notches); ++i) {
+            pointer.wheel(notches > 0 ? 1 : -1);
+        }
     } else if (command == "drag" || command == "hold") {
         pointer.button(true);
         constexpr int kSteps = 12;

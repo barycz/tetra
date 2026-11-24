@@ -173,8 +173,8 @@ Config parse(const json& root, Reader& reader) {
     Config config;
     Reader::expect_object(root, "");
     reader.check_keys(root, "",
-                      {"$schema", "keyboard", "outputs", "theme", "desktop", "windows", "taskbar",
-                       "idle", "shell", "terminal", "autostart"});
+                      {"$schema", "keyboard", "mouse", "touchpad", "outputs", "theme", "desktop",
+                       "windows", "taskbar", "idle", "shell", "terminal", "autostart"});
 
     if (auto it = root.find("keyboard"); it != root.end()) {
         const auto& kb = Reader::expect_object(*it, "keyboard");
@@ -186,6 +186,56 @@ Config parse(const json& root, Reader& reader) {
         Reader::read(kb, "keyboard.", "options", config.keyboard.options);
         Reader::read(kb, "keyboard.", "repeat_rate", config.keyboard.repeat_rate);
         Reader::read(kb, "keyboard.", "repeat_delay", config.keyboard.repeat_delay);
+    }
+
+    auto read_speed = [](const json& object, const char* path, double& out) {
+        Reader::read(object, path, "speed", out);
+        if (out < -1 || out > 1) {
+            throw ConfigError(std::format("'{}speed' must be between -1 (slowest) and 1 (fastest)", path));
+        }
+    };
+
+    if (auto it = root.find("mouse"); it != root.end()) {
+        const auto& mouse = Reader::expect_object(*it, "mouse");
+        reader.check_keys(mouse, "mouse.", {"speed", "acceleration", "natural_scroll", "left_handed"});
+        read_speed(mouse, "mouse.", config.mouse.speed);
+        Reader::read(mouse, "mouse.", "acceleration", config.mouse.acceleration);
+        Reader::read(mouse, "mouse.", "natural_scroll", config.mouse.natural_scroll);
+        Reader::read(mouse, "mouse.", "left_handed", config.mouse.left_handed);
+    }
+
+    if (auto it = root.find("touchpad"); it != root.end()) {
+        const auto& touchpad = Reader::expect_object(*it, "touchpad");
+        reader.check_keys(touchpad, "touchpad.",
+                          {"speed", "tap_to_click", "natural_scroll", "disable_while_typing", "scroll",
+                           "click"});
+        auto& tp = config.touchpad;
+        read_speed(touchpad, "touchpad.", tp.speed);
+        Reader::read(touchpad, "touchpad.", "tap_to_click", tp.tap_to_click);
+        Reader::read(touchpad, "touchpad.", "natural_scroll", tp.natural_scroll);
+        Reader::read(touchpad, "touchpad.", "disable_while_typing", tp.disable_while_typing);
+        std::string scroll;
+        Reader::read(touchpad, "touchpad.", "scroll", scroll);
+        if (scroll == "two_finger") {
+            tp.scroll = Touchpad::Scroll::TwoFinger;
+        } else if (scroll == "edge") {
+            tp.scroll = Touchpad::Scroll::Edge;
+        } else if (scroll == "none") {
+            tp.scroll = Touchpad::Scroll::None;
+        } else if (!scroll.empty()) {
+            throw ConfigError(std::format(
+                "'touchpad.scroll' must be \"two_finger\", \"edge\" or \"none\", got \"{}\"", scroll));
+        }
+        std::string click;
+        Reader::read(touchpad, "touchpad.", "click", click);
+        if (click == "areas") {
+            tp.click = Touchpad::Click::Areas;
+        } else if (click == "fingers") {
+            tp.click = Touchpad::Click::Fingers;
+        } else if (!click.empty()) {
+            throw ConfigError(
+                std::format("'touchpad.click' must be \"areas\" or \"fingers\", got \"{}\"", click));
+        }
     }
 
     if (auto it = root.find("outputs"); it != root.end()) {

@@ -24,6 +24,22 @@ the error is logged by each component.
     "repeat_delay": 400           // milliseconds
   },
 
+  "mouse": {
+    "speed": 0,                   // -1 (slowest) to 1 (fastest)
+    "acceleration": true,         // false: flat, however fast you move
+    "natural_scroll": false,
+    "left_handed": false          // swaps buttons on mice and touchpads
+  },
+
+  "touchpad": {
+    "speed": 0,
+    "tap_to_click": true,
+    "natural_scroll": true,
+    "disable_while_typing": true,
+    "scroll": "two_finger",       // "two_finger", "edge" or "none"
+    "click": "fingers"            // right click: "areas" (bottom right) or "fingers" (two)
+  },
+
   "outputs": [
     { "name": "DP-1", "mode": "2560x1440@144", "scale": 1.25, "position": [0, 0] },
     { "name": "HDMI-A-1", "enabled": false },
@@ -77,6 +93,16 @@ kanshi) can list them but not change them: `outputs` is the one place.
 | `keyboard.layout` / `model` / `variant` / `options` | string | `"us"` / `""` | yes |
 | `keyboard.repeat_rate` | integer, keys/s | `25` | yes |
 | `keyboard.repeat_delay` | integer, ms | `600` | yes |
+| `mouse.speed` | number, -1–1 | `0` | yes |
+| `mouse.acceleration` | bool | `true` | yes |
+| `mouse.natural_scroll` | bool | `false` | yes |
+| `mouse.left_handed` | bool (mice and touchpads) | `false` | yes |
+| `touchpad.speed` | number, -1–1 | `0` | yes |
+| `touchpad.tap_to_click` | bool | `true` | yes |
+| `touchpad.natural_scroll` | bool | `true` | yes |
+| `touchpad.disable_while_typing` | bool | `true` | yes |
+| `touchpad.scroll` | `"two_finger"`, `"edge"`, `"none"` | `"two_finger"` | yes |
+| `touchpad.click` | `"areas"`, `"fingers"` | the touchpad's default | yes |
 | `outputs[].name` | connector name or `"*"` | required | yes |
 | `outputs[].enabled` | bool | `true` | yes |
 | `outputs[].mode` | `"WxH"` or `"WxH@Hz"` | preferred mode | yes |
@@ -98,3 +124,7 @@ kanshi) can list them but not change them: `outputs` is the one place.
 | `autostart` | array of commands | `[]` | at startup only |
 
 Colours are `"#rgb"`, `"#rrggbb"` or `"#rrggbbaa"`.
+
+Mouse and touchpad settings apply to devices tetra opens through libinput
+(a real session). A device that lacks a setting (a mouse without
+acceleration profiles, say) keeps its own behaviour for that setting.

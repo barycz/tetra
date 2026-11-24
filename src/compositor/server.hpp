@@ -19,6 +19,7 @@
 namespace tetra {
 
 class Keyboard;
+class Pointer;
 class LayerSurface;
 class Output;
 class SessionLock;
@@ -103,6 +104,7 @@ public:
     void begin_interactive_resize(View& view, uint32_t edges);
     bool handle_keybinding(uint32_t modifiers, xkb_keysym_t sym);
     void destroy_keyboard(Keyboard& keyboard);
+    void destroy_pointer(Pointer& pointer);
 
     // Scene layers, bottom to top.
     struct Layers {
@@ -224,6 +226,7 @@ private:
     void update_output_manager();
     bool arranging_outputs_ = false; // applying "outputs": windows are fitted after
     std::vector<std::unique_ptr<Keyboard>> keyboards_;
+    std::vector<std::unique_ptr<Pointer>> pointers_; // mice, touchpads
     std::vector<std::unique_ptr<View>> views_;
     std::vector<View*> focus_order_; // mapped views, most recently focused first
     View* focused_view_ = nullptr;

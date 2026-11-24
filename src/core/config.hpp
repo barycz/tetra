@@ -40,6 +40,30 @@ struct Keyboard {
     bool operator==(const Keyboard&) const = default;
 };
 
+// Mice (and trackpoints, trackballs). left_handed also applies to touchpads.
+struct Mouse {
+    double speed = 0;          // -1 (slowest) to 1 (fastest)
+    bool acceleration = true;  // false: the pointer moves as far as the mouse, however fast
+    bool natural_scroll = false;
+    bool left_handed = false;  // swaps the primary and secondary buttons
+    bool operator==(const Mouse&) const = default;
+};
+
+struct Touchpad {
+    enum class Scroll { TwoFinger, Edge, None };
+    enum class Click { Areas, Fingers };
+    double speed = 0;
+    bool tap_to_click = true;
+    bool natural_scroll = true; // content follows the fingers
+    bool disable_while_typing = true;
+    Scroll scroll = Scroll::TwoFinger;
+    // Areas: the bottom right of the pad is a right click. Fingers: a click
+    // with two fingers is a right click, three a middle click. None: the
+    // touchpad's own default.
+    std::optional<Click> click;
+    bool operator==(const Touchpad&) const = default;
+};
+
 struct OutputMode {
     int width = 0;
     int height = 0;
@@ -92,6 +116,8 @@ struct Idle {
 
 struct Config {
     Keyboard keyboard;
+    Mouse mouse;
+    Touchpad touchpad;
     std::vector<Output> outputs;
     Theme theme;
     Desktop desktop;

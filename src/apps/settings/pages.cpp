@@ -480,6 +480,117 @@ void Settings::page_keyboard() {
     end_card();
 }
 
+// --- Mouse & touchpad --------------------------------------------------------------------
+
+void Settings::speed_slider(const char* id, const char* section, double value, std::optional<double>& editing) {
+    auto speed = static_cast<float>(editing.value_or(value));
+    // libinput's own scale: 0 is the device's normal speed.
+    const char* format = std::abs(speed) < 0.05F ? "Normal" : (speed < 0 ? "Slower (%.1f)" : "Faster (+%.1f)");
+    if (ImGui::SliderFloat(id, &speed, -1, 1, format)) {
+        editing = std::round(static_cast<double>(speed) * 10) / 10; // steps of 0.1 keep the file tidy
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit() && editing) {
+        save([section = std::string(section), v = *editing](config::Document& d) {
+            return d.set({section, "speed"}, v);
+        });
+        editing.reset();
+    }
+}
+
+void Settings::page_mouse() {
+    const auto& c = app_.config();
+    using Touchpad = config::Touchpad;
+    auto set_bool = [this](const char* section, const char* key, bool value) {
+        save([section, key, value](config::Document& d) { return d.set({section, key}, value); });
+    };
+
+    begin_card("Mouse");
+    row("Pointer speed");
+    speed_slider("##mousespeed", "mouse", c.mouse.speed, mouse_speed_);
+    row("Acceleration", "Fast movements take the pointer further. Off, it moves as far as the mouse.");
+    if (toggle("##accel", c.mouse.acceleration)) {
+        set_bool("mouse", "acceleration", !c.mouse.acceleration);
+    }
+    row("Natural scrolling", "The wheel moves the content instead of the view, like a touchscreen.");
+    if (toggle("##mousenatural", c.mouse.natural_scroll)) {
+        set_bool("mouse", "natural_scroll", !c.mouse.natural_scroll);
+    }
+    row("Primary button", "For mice and touchpads.");
+    if (ImGui::BeginCombo("##primary", c.mouse.left_handed ? "Right" : "Left")) {
+        for (const bool left_handed : {false, true}) {
+            if (ImGui::Selectable(left_handed ? "Right" : "Left", left_handed == c.mouse.left_handed)) {
+                set_bool("mouse", "left_handed", left_handed);
+            }
+        }
+        ImGui::EndCombo();
+    }
+    end_card();
+
+    const auto& tp = c.touchpad;
+    begin_card("Touchpad");
+    row("Pointer speed");
+    speed_slider("##touchpadspeed", "touchpad", tp.speed, touchpad_speed_);
+    row("Tap to click", "Tap with one finger to click, two to right-click, three to middle-click.");
+    if (toggle("##tap", tp.tap_to_click)) {
+        set_bool("touchpad", "tap_to_click", !tp.tap_to_click);
+    }
+    row("Natural scrolling", "The content follows your fingers.");
+    if (toggle("##tpnatural", tp.natural_scroll)) {
+        set_bool("touchpad", "natural_scroll", !tp.natural_scroll);
+    }
+    row("Scrolling");
+    {
+        struct Choice {
+            Touchpad::Scroll value;
+            const char* key;
+            const char* label;
+        };
+        static constexpr std::array kScroll{
+            Choice{Touchpad::Scroll::TwoFinger, "two_finger", "Two fingers"},
+            Choice{Touchpad::Scroll::Edge, "edge", "Along the right edge"},
+            Choice{Touchpad::Scroll::None, "none", "Off"},
+        };
+        const auto current = std::ranges::find(kScroll, tp.scroll, &Choice::value);
+        if (ImGui::BeginCombo("##scroll", current->label)) {
+            for (const auto& choice : kScroll) {
+                if (ImGui::Selectable(choice.label, choice.value == tp.scroll)) {
+                    save([key = choice.key](config::Document& d) { return d.set({"touchpad", "scroll"}, key); });
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+    row("Right click", "Pressing the pad down: where, or with how many fingers.");
+    {
+        struct Choice {
+            std::optional<Touchpad::Click> value;
+            const char* key; // null: remove the setting
+            const char* label;
+        };
+        static const std::array kClick{
+            Choice{std::nullopt, nullptr, "Touchpad default"},
+            Choice{Touchpad::Click::Areas, "areas", "Bottom-right corner"},
+            Choice{Touchpad::Click::Fingers, "fingers", "Two fingers"},
+        };
+        const auto current = std::ranges::find(kClick, tp.click, &Choice::value);
+        if (ImGui::BeginCombo("##click", current->label)) {
+            for (const auto& choice : kClick) {
+                if (ImGui::Selectable(choice.label, choice.value == tp.click)) {
+                    save([key = choice.key](config::Document& d) {
+                        return key == nullptr ? d.erase({"touchpad", "click"}) : d.set({"touchpad", "click"}, key);
+                    });
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+    row("Disable while typing", "Ignores the touchpad for a moment after each key.");
+    if (toggle("##dwt", tp.disable_while_typing)) {
+        set_bool("touchpad", "disable_while_typing", !tp.disable_while_typing);
+    }
+    end_card();
+}
+
 // --- Lock & power ------------------------------------------------------------------------
 
 void Settings::page_power() {

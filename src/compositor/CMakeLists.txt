@@ -1,4 +1,5 @@
 pkg_check_modules(PANGOCAIRO REQUIRED IMPORTED_TARGET pangocairo cairo)
+pkg_check_modules(LIBINPUT REQUIRED IMPORTED_TARGET libinput)
 
 add_executable(tetra
     cairo_buffer.cpp
@@ -8,6 +9,7 @@ add_executable(tetra
     layer_surface.cpp
     main.cpp
     output.cpp
+    pointer.cpp
     popup.cpp
     server.cpp
     session_lock.cpp
@@ -36,6 +38,7 @@ target_link_libraries(tetra PRIVATE
     PkgConfig::WAYLAND_SERVER
     PkgConfig::XKBCOMMON
     PkgConfig::PANGOCAIRO
+    PkgConfig::LIBINPUT
 )
 
 install(TARGETS tetra)

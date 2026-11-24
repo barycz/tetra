@@ -6,6 +6,7 @@
 #include "layer_surface.hpp"
 #include "log.hpp"
 #include "output.hpp"
+#include "pointer.hpp"
 #include "popup.hpp"
 #include "session_lock.hpp"
 #include "shell_protocol.hpp"
@@ -65,6 +66,7 @@ Server::~Server() {
     grab_ = {};
     views_.clear();
     keyboards_.clear();
+    pointers_.clear();
     outputs_.clear();
     taskbar_.on_changed = nullptr;
     shell_protocol_.reset();
@@ -512,6 +514,13 @@ void Server::apply_config(const config::Config& previous) {
         for (const auto& keyboard : keyboards_) {
             keyboard->apply_config(config_.keyboard);
         }
+    }
+    if (config_.mouse != previous.mouse || config_.touchpad != previous.touchpad) {
+        for (const auto& pointer : pointers_) {
+            pointer->apply_config(config_.mouse, config_.touchpad);
+        }
+        log::info("mouse and touchpad settings applied to {} libinput device(s)",
+                  std::ranges::count_if(pointers_, [](const auto& p) { return p->configurable(); }));
     }
     if (config_.outputs != previous.outputs) {
         // Windows move with their display when it moves in the layout, and
