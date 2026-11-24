@@ -315,6 +315,22 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   screens after `idle.screen_off_after` (60 s at most on the lock screen)
   through `wlr-output-power-management`. The compositor disables the output
   but keeps it in the layout, and restores the same mode on wake.
+- **polkit agent**: tetra-shell exports
+  `org.freedesktop.PolicyKit1.AuthenticationAgent` on the system bus and
+  registers it for its logind session. polkitd may then call
+  BeginAuthentication (for pkexec, mounting, package installs). For each
+  try, the shell runs the setuid `polkit-agent-helper-1`, sends the cookie
+  on stdin (never on the command line) and relays the helper's PAM prompts
+  (`PAM_PROMPT_ECHO_OFF` �) to a dialog. On success the helper reports to
+  polkitd itself; on failure a new try starts.
+  - The dialog dims the screen and shows the app's message, which user
+    (admin groups such as sudo expand to their members, the current user
+    first), the prompt, PAM messages and the action id.
+  - Requests queue and show one at a time. Escape or Cancel returns
+    `Error.Cancelled`, and CancelAuthentication closes the dialog.
+  - `TETRA_POLKIT_HELPER` replaces the helper. Tests use this, and it grants
+    nothing, since polkitd only trusts the result from the real helper,
+    which runs as root.
 - **logind**: Session.Lock (`loginctl lock-session`) locks. With
   `idle.lock_before_sleep`, the shell holds a delay inhibitor for sleep: on
   PrepareForSleep it locks, then releases the inhibitor once the compositor
@@ -337,7 +353,9 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   `$TETRA_TEST_PASSWORD` is accepted, so tests never touch real accounts
   or passwords. ASan needs `PAM_WRAPPER_DISABLE_DEEPBIND=1`. Scenarios
   change settings such as idle timeouts by rewriting `$TETRA_CONFIG`
-  (live reload).
+  (live reload). polkit requests come from `tests/tools/polkit-request`
+  (it calls the shell's agent like polkitd would); the helper is
+  `tests/tools/fake-polkit-helper`, which accepts the same test password.
 - The seat always advertises a keyboard, so clients hold a `wl_keyboard`
   before any (virtual or hot-plugged) keyboard appears.
 - **Real session:** from a spare TTY, or later through a `wayland-sessions`
@@ -355,7 +373,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
    *(done; window-list popup, tooltips and pinning from the UI pending)*
 3. **Shell services** — notifications, OSD, lock/idle, polkit agent, screenshots, SNI tray.
    *(in progress: D-Bus layer, notifications, volume/brightness OSD, lock
-   screen and idle done)*
+   screen, idle and polkit agent done)*
 4. **Settings app.**
 5. **Apps and portal** — terminal, system monitor, portal backend.
 6. **Final pieces** — greeter, animations, polish.

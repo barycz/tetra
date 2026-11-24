@@ -53,8 +53,9 @@ export WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_LIBINPUT_NO_DEVICES=1
 export WLR_RENDERER="${WLR_RENDERER:-gles2}"
 export TETRA_OUTPUT_SIZE="$size"
 export LSAN_OPTIONS="${LSAN_OPTIONS:-suppressions=$root/scripts/lsan.supp:print_suppressions=0}"
-# Test helpers (tetra-sendkeys) for the scenario scripts.
-export PATH="$root/build/$preset/tests/tools:$PATH"
+# Test helpers for the scenario scripts: built ones (tetra-sendkeys) and
+# scripts (polkit-request).
+export PATH="$root/build/$preset/tests/tools:$root/tests/tools:$PATH"
 
 # The lock screen must never check (or need) a real password: everything
 # runs under pam_wrapper (it only intercepts PAM calls, i.e. the shell's),
@@ -74,6 +75,9 @@ export PAM_WRAPPER=1 PAM_WRAPPER_SERVICE_DIR="$runtime/pam.d"
 # its RTLD_DEEPBIND dlopen of libpam would make ASan abort.
 export PAM_WRAPPER_DISABLE_DEEPBIND=1
 export ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}verify_asan_link_order=0"
+# The polkit agent's setuid helper ignores LD_PRELOAD; use a stand-in that
+# speaks its protocol and accepts the same test password.
+export TETRA_POLKIT_HELPER="$root/tests/tools/fake-polkit-helper"
 
 # Tests must not depend on the developer's own ~/.config/tetra. Scenarios
 # may rewrite $TETRA_CONFIG while running (it reloads live).

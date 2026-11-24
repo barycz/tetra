@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Stand-in for polkit-agent-helper-1 in headless tests (TETRA_POLKIT_HELPER):
+# the same line protocol on stdin/stdout, but it accepts only
+# $TETRA_TEST_PASSWORD and tells nobody. The real helper is setuid root and
+# reports to polkitd itself, so tests never touch a real password with it.
+#
+#   argv[1]: user name     stdin: cookie, then the answers to our prompts
+set -u
+
+read -r cookie || exit 1
+[[ -n "$cookie" ]] || exit 1
+echo "PAM_PROMPT_ECHO_OFF Password: "
+read -r answer || exit 1
+if [[ "$answer" == "${TETRA_TEST_PASSWORD:-}" ]]; then
+    echo "SUCCESS"
+else
+    sleep 0.3 # like pam_unix's failure delay, shortened
+    echo "PAM_ERROR_MSG Authentication failure"
+    echo "FAILURE"
+fi

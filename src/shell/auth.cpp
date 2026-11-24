@@ -4,6 +4,7 @@
 
 #include <security/pam_appl.h>
 
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -57,8 +58,10 @@ int converse(int count, const pam_message** messages, pam_response** responses, 
 }
 
 bool check_password(const std::string& password) {
-    const passwd* pw = getpwuid(getuid()); // NOLINT(concurrency-mt-unsafe): only this thread
-    if (pw == nullptr) {
+    passwd entry{};
+    passwd* pw = nullptr;
+    std::array<char, 4096> buffer{};
+    if (getpwuid_r(getuid(), &entry, buffer.data(), buffer.size(), &pw) != 0 || pw == nullptr) {
         std::println(stderr, "tetra-shell: lock screen: unknown user {}", getuid());
         return false;
     }

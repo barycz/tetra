@@ -25,6 +25,7 @@ Logind::Logind(sdbus::IConnection& system_bus) : bus_(system_bus) {
             .withArguments(static_cast<uint32_t>(getpid()))
             .storeResultsTo(path);
         session_ = sdbus::createProxy(bus_, kService, std::move(path));
+        session_id_ = session_->getProperty("Id").onInterface(kSession).get<std::string>();
         session_->uponSignal("Lock").onInterface(kSession).call([this] {
             if (on_lock) {
                 on_lock();
@@ -46,6 +47,7 @@ Logind::Logind(sdbus::IConnection& system_bus) : bus_(system_bus) {
         std::println(stderr, "tetra-shell: logind integration disabled: {}", e.what());
         session_.reset();
         manager_.reset();
+        session_id_.clear();
     }
 }
 

@@ -15,6 +15,7 @@ add_executable(tetra-shell
     main.cpp
     notifications.cpp
     osd.cpp
+    polkit_agent.cpp
     shell.cpp
     tray.cpp
     volume_popup.cpp

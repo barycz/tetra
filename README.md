@@ -9,7 +9,8 @@ Xwayland; ImGui toolkit; `tetra-shell` with the F-key task bar (12 slots in
 groups of four), app launcher, network/battery indicators and clock;
 desktop notifications (`notify-send` works); volume control in the tray and
 a volume/brightness OSD for the media keys; a lock screen (PAM) with idle
-locking, screen blanking and locking before sleep; one JSON configuration with live
+locking, screen blanking and locking before sleep; a polkit agent (pkexec and
+friends ask for your password in a tetra dialog); one JSON configuration with live
 reload ([docs/config.md](docs/config.md)). Phase 3 (shell services) in progress.
 
 ## Building (Debian 13)
@@ -95,7 +96,7 @@ data/             files installed alongside (PAM service for the lock screen)
 protocols/        tetra's private Wayland protocol (compositor <-> shell)
 scripts/          deps, vendored build, headless runner, test runner
 tests/headless/   scripted headless scenarios
-tests/tools/      tetra-sendkeys (key chords for tests)
+tests/tools/      tetra-sendkeys (key chords), polkit-request and fake-polkit-helper
 patches/          local patches to vendored dependencies
 third_party/      pinned submodules (wlroots, wayland, imgui, ...)
 docs/             design notes, configuration reference

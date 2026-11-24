@@ -11,6 +11,7 @@
 #include "logind.hpp"
 #include "notifications.hpp"
 #include "osd.hpp"
+#include "polkit_agent.hpp"
 #include "tray.hpp"
 
 #include <array>
@@ -107,6 +108,7 @@ private:
     std::unique_ptr<ui::DBusConnection> system_bus_;
     std::unique_ptr<Brightness> brightness_;
     std::unique_ptr<Logind> logind_;
+    std::unique_ptr<PolkitAgent> polkit_;
     std::unique_ptr<Notifications> notifications_;
 };
 

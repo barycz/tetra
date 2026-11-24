@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 
 namespace tetra::shell {
 
@@ -25,6 +26,9 @@ public:
     // The lock screen is up: sleep may go ahead.
     void release_sleep_inhibitor();
 
+    // This process's logind session (e.g. "2"); empty without logind.
+    [[nodiscard]] const std::string& session_id() const noexcept { return session_id_; }
+
 private:
     void take_sleep_inhibitor();
 
@@ -33,6 +37,7 @@ private:
     std::unique_ptr<sdbus::IProxy> session_;
     std::optional<sdbus::UnixFd> sleep_inhibitor_;
     bool lock_before_sleep_ = false;
+    std::string session_id_;
 };
 
 } // namespace tetra::shell

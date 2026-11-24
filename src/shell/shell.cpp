@@ -128,6 +128,12 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
     if (system_bus_) {
         logind_ = std::make_unique<Logind>(system_bus_->connection());
         logind_->on_lock = [this] { lock(); };
+        try {
+            polkit_ = std::make_unique<PolkitAgent>(*this, system_bus_->connection(),
+                                                    logind_->session_id());
+        } catch (const sdbus::Error& e) {
+            std::println(stderr, "tetra-shell: polkit agent disabled: {}", e.what());
+        }
     }
     apply_idle_config();
 
@@ -137,6 +143,7 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
 
 Shell::~Shell() {
     notifications_.reset();
+    polkit_.reset();
     logind_.reset();
     brightness_.reset();
     system_bus_.reset();

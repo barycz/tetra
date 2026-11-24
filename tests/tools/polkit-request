@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# For headless scenarios: plays polkitd and asks this session's tetra-shell
+# agent to authenticate (BeginAuthentication on the private test bus).
+# Blocks until the dialog is done; prints "()" on success or the D-Bus
+# error, and exits non-zero on error.
+#
+#   polkit-request [identities]    default: the current user
+#   e.g. polkit-request "[('unix-user', {'uid': <uint32 0>}), ('unix-user', {'uid': <uint32 1000>})]"
+set -eu
+
+identities="[('unix-user', {'uid': <uint32 $(id -u)>})]"
+if [[ $# -ge 1 ]]; then
+    identities="$1"
+fi
+bus="${DBUS_SYSTEM_BUS_ADDRESS:?no test bus}"
+
+# This compositor (the nearest "tetra" ancestor), then its shell.
+compositor=$$
+while [[ "$(ps -o comm= -p "$compositor")" != "tetra" ]]; do
+    compositor="$(ps -o ppid= -p "$compositor" | tr -d ' ')"
+    [[ "$compositor" -gt 1 ]] || { echo "no tetra ancestor" >&2; exit 2; }
+done
+shell="$(pgrep -P "$compositor" -x tetra-shell | head -n 1)"
+[[ -n "$shell" ]] || { echo "no tetra-shell" >&2; exit 2; }
+
+# The shell's connections to the bus; the agent is on one of them.
+for name in $(busctl --address="$bus" list --no-legend --no-pager --unique 2>/dev/null |
+              awk -v pid="$shell" '$2 == pid { print $1 }'); do
+    if gdbus introspect --address "$bus" --dest "$name" \
+           --object-path /org/tetra/PolicyKit1/AuthenticationAgent 2>/dev/null |
+           grep -q BeginAuthentication; then
+        exec gdbus call --address "$bus" --dest "$name" --timeout 120 \
+            --object-path /org/tetra/PolicyKit1/AuthenticationAgent \
+            --method org.freedesktop.PolicyKit1.AuthenticationAgent.BeginAuthentication \
+            org.freedesktop.policykit.exec \
+            'Authentication is needed to run `/usr/bin/true` as the super user' \
+            utilities-terminal '{}' "test-cookie-$$" "$identities"
+    fi
+done
+echo "the shell exports no polkit agent" >&2
+exit 2
