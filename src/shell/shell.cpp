@@ -60,6 +60,14 @@ const tetra_shell_v1_listener ShellListener::listener = {
     .media_key = [](void* data, tetra_shell_v1* /*shell*/,
                     uint32_t key) { static_cast<Shell*>(data)->handle_media_key(key); },
     .lock = [](void* data, tetra_shell_v1* /*shell*/) { static_cast<Shell*>(data)->lock(); },
+    .screenshot =
+        [](void* data, tetra_shell_v1* /*shell*/, uint32_t serial, uint32_t mode, wl_output* output,
+           int32_t x, int32_t y, int32_t width, int32_t height) {
+            auto* self = static_cast<Shell*>(data);
+            if (output != nullptr && !self->lock_screen_->active()) {
+                self->screenshots_->take(serial, mode, output, x, y, width, height);
+            }
+        },
 };
 
 Shell::Shell(ui::App& app) : app_(app), icons_(app) {
@@ -75,7 +83,7 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
     };
     osd_ = std::make_unique<Osd>(*this);
 
-    protocol_ = static_cast<tetra_shell_v1*>(app_.bind_global(&tetra_shell_v1_interface, 3));
+    protocol_ = static_cast<tetra_shell_v1*>(app_.bind_global(&tetra_shell_v1_interface, 4));
     if (protocol_ != nullptr) {
         tetra_shell_v1_add_listener(protocol_, &ShellListener::listener, this);
     } else {
@@ -97,6 +105,7 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
         static_cast<zwlr_output_power_manager_v1*>(
             app_.bind_global(&zwlr_output_power_manager_v1_interface, 1)));
     idle_->on_lock = [this] { lock(); };
+    screenshots_ = std::make_unique<Screenshots>(*this);
 
     app_.on_output_added = [this](const ui::OutputInfo& output) {
         outputs_[output.global] = output;
@@ -149,6 +158,7 @@ Shell::~Shell() {
     system_bus_.reset();
     dbus_.reset();
     osd_.reset();
+    screenshots_.reset();
     idle_.reset();
     lock_screen_.reset();
     volume_popup_.reset();
@@ -225,6 +235,15 @@ void Shell::hide_volume_popup() {
     }
     std::shared_ptr<VolumePopup> closing(std::move(volume_popup_));
     app_.add_timer(milliseconds(0), [closing] {});
+}
+
+const ui::OutputInfo* Shell::output_info(const wl_output* output) const {
+    for (const auto& [global, info] : outputs_) {
+        if (info.output == output) {
+            return &info;
+        }
+    }
+    return nullptr;
 }
 
 void Shell::lock() {

@@ -331,6 +331,21 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   - `TETRA_POLKIT_HELPER` replaces the helper. Tests use this, and it grants
     nothing, since polkitd only trusts the result from the real helper,
     which runs as root.
+- **Screenshots**: the compositor turns Print (output under the pointer),
+  Shift+Print or Super+Shift+S (region) and Alt+Print (focused window, frame
+  included) into `tetra_shell_v1.screenshot` (protocol version 4). The event
+  carries the shell's wl_output, a box in output-logical coordinates, and a
+  serial registered with the seat for the shell's client. The shell
+  captures the whole output with wlr-screencopy (shm, without the cursor)
+  and crops it. For a region, it first shows that frozen capture full screen,
+  dimmed, and the user drags a rectangle (Esc cancels). The result is saved
+  as PNG (cairo) to `$XDG_PICTURES_DIR` (else user-dirs.dirs, else
+  ~/Pictures) + `/Screenshots/Screenshot <date> <time>.png`. It is offered
+  as `image/png` on the clipboard (wl_data_device with the event's serial;
+  a thread writes it to each reader). A notification with a thumbnail
+  follows; clicking it opens the image (xdg-open).
+- **Clipboard tools**: the compositor offers wlr- and ext-data-control, so
+  clipboard managers and wl-copy/wl-paste work without keyboard focus.
 - **logind**: Session.Lock (`loginctl lock-session`) locks. With
   `idle.lock_before_sleep`, the shell holds a delay inhibitor for sleep: on
   PrepareForSleep it locks, then releases the inhibitor once the compositor
@@ -356,6 +371,9 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   (live reload). polkit requests come from `tests/tools/polkit-request`
   (it calls the shell's agent like polkitd would); the helper is
   `tests/tools/fake-polkit-helper`, which accepts the same test password.
+  Screenshots go to a private `$XDG_PICTURES_DIR`. `tetra-pointer` gives
+  absolute moves, clicks and drags (wlrctl cannot drag). wlroots releases a
+  virtual pointer's buttons when it goes away, so `hold` keeps running.
 - The seat always advertises a keyboard, so clients hold a `wl_keyboard`
   before any (virtual or hot-plugged) keyboard appears.
 - **Real session:** from a spare TTY, or later through a `wayland-sessions`
@@ -373,7 +391,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
    *(done; window-list popup, tooltips and pinning from the UI pending)*
 3. **Shell services** — notifications, OSD, lock/idle, polkit agent, screenshots, SNI tray.
    *(in progress: D-Bus layer, notifications, volume/brightness OSD, lock
-   screen, idle and polkit agent done)*
+   screen, idle, polkit agent and screenshots done)*
 4. **Settings app.**
 5. **Apps and portal** — terminal, system monitor, portal backend.
 6. **Final pieces** — greeter, animations, polish.

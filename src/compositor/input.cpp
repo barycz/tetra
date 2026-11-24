@@ -468,6 +468,40 @@ void Server::process_resize() {
 
 // --- key bindings --------------------------------------------------------------------
 
+bool Server::take_screenshot(uint32_t mode) {
+    if (!shell_protocol_) {
+        return false; // let applications have the key
+    }
+    wlr_output* output = wlr_output_layout_output_at(output_layout, cursor->x, cursor->y);
+    wlr_box window{};
+    if (mode == TETRA_SHELL_V1_SCREENSHOT_MODE_WINDOW) {
+        if (focused_view_ != nullptr && focused_view_->mapped() && !focused_view_->minimized()) {
+            window = focused_view_->frame();
+            output = wlr_output_layout_output_at(output_layout, window.x + (window.width / 2.0),
+                                                 window.y + (window.height / 2.0));
+        } else {
+            mode = TETRA_SHELL_V1_SCREENSHOT_MODE_OUTPUT; // no window: the whole screen
+        }
+    }
+    if (output == nullptr) {
+        return true;
+    }
+    wlr_box area{};
+    wlr_output_layout_get_box(output_layout, output, &area);
+    wlr_box box{.x = 0, .y = 0, .width = area.width, .height = area.height};
+    if (mode == TETRA_SHELL_V1_SCREENSHOT_MODE_WINDOW) {
+        // The part of the window on that output, relative to it.
+        wlr_box clipped{};
+        if (!wlr_box_intersection(&clipped, &window, &area)) {
+            return true;
+        }
+        box = {.x = clipped.x - area.x, .y = clipped.y - area.y, .width = clipped.width,
+               .height = clipped.height};
+    }
+    shell_protocol_->screenshot(mode, output, box);
+    return true;
+}
+
 bool Server::handle_keybinding(uint32_t modifiers, xkb_keysym_t sym) {
     // Ctrl+Alt+F<n> arrives as XF86Switch_VT_<n>.
     if (sym >= XKB_KEY_XF86Switch_VT_1 && sym <= XKB_KEY_XF86Switch_VT_12) {
@@ -519,6 +553,17 @@ bool Server::handle_keybinding(uint32_t modifiers, xkb_keysym_t sym) {
     if (super && (sym == XKB_KEY_l || sym == XKB_KEY_L)) {
         request_lock();
         return true;
+    }
+    // Screenshots: Print (output), Shift+Print or Super+Shift+S (region),
+    // Alt+Print (window; with Alt held most layouts send Sys_Req).
+    if (sym == XKB_KEY_Print || sym == XKB_KEY_Sys_Req) {
+        const uint32_t mode = alt || sym == XKB_KEY_Sys_Req ? TETRA_SHELL_V1_SCREENSHOT_MODE_WINDOW
+                              : shift                       ? TETRA_SHELL_V1_SCREENSHOT_MODE_REGION
+                                                            : TETRA_SHELL_V1_SCREENSHOT_MODE_OUTPUT;
+        return take_screenshot(mode);
+    }
+    if (super && shift && (sym == XKB_KEY_S || sym == XKB_KEY_s)) {
+        return take_screenshot(TETRA_SHELL_V1_SCREENSHOT_MODE_REGION);
     }
     if (super && shift && sym == XKB_KEY_Escape) {
         terminate();

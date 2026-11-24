@@ -30,6 +30,9 @@ public:
     bool media_key(uint32_t key);
     // Asks the shell to lock the session; false if no shell can.
     bool lock();
+    // Asks the shell for a screenshot (tetra_shell_v1.screenshot); `box` in
+    // the output's logical coordinates. False if no shell can take it.
+    bool screenshot(uint32_t mode, wlr_output* output, const wlr_box& box);
 
 private:
     static void bind(wl_client* client, void* data, uint32_t version, uint32_t id);

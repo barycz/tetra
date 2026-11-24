@@ -9,7 +9,7 @@
 namespace tetra {
 
 namespace {
-constexpr int kVersion = 3;
+constexpr int kVersion = 4;
 }
 
 struct ShellProtocolImpl {
@@ -117,6 +117,37 @@ bool ShellProtocol::media_key(uint32_t key) {
             tetra_shell_v1_send_media_key(resource, key);
             sent = true;
         }
+    }
+    return sent;
+}
+
+bool ShellProtocol::screenshot(uint32_t mode, wlr_output* output, const wlr_box& box) {
+    bool sent = false;
+    for (wl_resource* resource : resources_) {
+        if (wl_resource_get_version(resource) < TETRA_SHELL_V1_SCREENSHOT_SINCE_VERSION) {
+            continue;
+        }
+        wl_client* client = wl_resource_get_client(resource);
+        // The shell's own wl_output object for that output.
+        wl_resource* output_resource = nullptr;
+        wl_resource* candidate = nullptr;
+        wl_resource_for_each(candidate, &output->resources) {
+            if (wl_resource_get_client(candidate) == client) {
+                output_resource = candidate;
+                break;
+            }
+        }
+        if (output_resource == nullptr) {
+            continue;
+        }
+        // A serial the seat knows it gave this client: the shell may use it
+        // to put the picture on the clipboard.
+        wlr_seat_client* seat_client = wlr_seat_client_for_wl_client(server_.seat, client);
+        const uint32_t serial = seat_client != nullptr ? wlr_seat_client_next_serial(seat_client)
+                                                       : wl_display_next_serial(server_.display);
+        tetra_shell_v1_send_screenshot(resource, serial, mode, output_resource, box.x, box.y,
+                                       box.width, box.height);
+        sent = true;
     }
     return sent;
 }

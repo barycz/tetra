@@ -7,6 +7,7 @@
 #include <sdbus-c++/sdbus-c++.h>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -19,6 +20,8 @@ namespace tetra::shell {
 class Shell;
 
 struct Notification {
+    // Posted by the shell itself: called instead of emitting ActionInvoked.
+    std::function<void()> on_activate;
     struct Image {
         int width = 0;
         int height = 0;
@@ -67,6 +70,9 @@ public:
     void dismiss(uint32_t id);
     void invoke(uint32_t id, const std::string& action);
     void set_hovered(uint32_t id, bool hovered);
+    // A notification from the shell itself; clicking it calls `on_activate`.
+    void post(const std::string& summary, const std::string& body, const std::string& image_path,
+              std::function<void()> on_activate);
 
 private:
     uint32_t notify(const std::string& app_name, uint32_t replaces_id, const std::string& app_icon,

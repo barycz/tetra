@@ -69,6 +69,9 @@ public:
     // User input: resets idle timers (ext-idle-notify).
     void notify_activity();
 
+    // Print key variants: ask the shell to capture (input.cpp).
+    bool take_screenshot(uint32_t mode);
+
     // --- outputs & layers (wm.cpp) -------------------------------------------
     [[nodiscard]] Output* find_output(wlr_output* wlr_output) const;
     [[nodiscard]] wlr_box usable_area_at_cursor() const;

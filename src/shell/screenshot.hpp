@@ -1,0 +1,106 @@
+#pragma once
+
+#include <wayland-client.h>
+
+#include <cstdint>
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <vector>
+
+struct wl_data_device;
+struct wl_data_device_manager;
+struct wl_data_offer;
+struct wl_data_source;
+struct wl_shm;
+struct zwlr_screencopy_frame_v1;
+struct zwlr_screencopy_manager_v1;
+
+namespace tetra::ui {
+class LayerWindow;
+class Texture;
+}
+
+namespace tetra::shell {
+
+class Shell;
+
+// Screenshots (Print and friends, sent by the compositor): captures the
+// output with wlr-screencopy, crops it (window, or a region the user drags
+// on a frozen copy of the screen), saves a PNG under Pictures/Screenshots,
+// puts it on the clipboard and shows a notification.
+class Screenshots {
+public:
+    explicit Screenshots(Shell& shell);
+    ~Screenshots();
+
+    Screenshots(const Screenshots&) = delete;
+    Screenshots& operator=(const Screenshots&) = delete;
+    Screenshots(Screenshots&&) = delete;
+    Screenshots& operator=(Screenshots&&) = delete;
+
+    // Arguments of tetra_shell_v1.screenshot.
+    void take(uint32_t serial, uint32_t mode, wl_output* output, int x, int y, int width, int height);
+
+    // Where screenshots go: $XDG_PICTURES_DIR (or user-dirs.dirs, or
+    // ~/Pictures) + /Screenshots.
+    static std::filesystem::path directory();
+
+private:
+    friend struct ScreencopyListener;
+    friend struct DataSourceListener;
+    friend struct DataDeviceListener;
+
+    struct Rect {
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+    };
+    // A captured output: 32-bit pixels, B G R X in memory (cairo's RGB24).
+    struct Image {
+        int width = 0;
+        int height = 0;
+        std::vector<uint8_t> pixels;
+    };
+    struct Capture {
+        Screenshots* owner = nullptr;
+        zwlr_screencopy_frame_v1* frame = nullptr;
+        uint32_t format = UINT32_MAX;
+        int width = 0;
+        int height = 0;
+        int stride = 0;
+        bool y_invert = false;
+        int fd = -1;
+        void* data = nullptr;
+        std::size_t size = 0;
+        wl_buffer* buffer = nullptr;
+        // The request.
+        uint32_t serial = 0;
+        uint32_t mode = 0;
+        wl_output* output = nullptr;
+        Rect box; // logical, relative to the output
+    };
+    class RegionPicker;
+
+    void copy_frame(Capture& capture);
+    void captured(Capture& capture);
+    void end_capture();
+    void crop_and_save(const Image& image, Rect pixels, uint32_t serial);
+    void set_clipboard(std::shared_ptr<const std::vector<uint8_t>> png, uint32_t serial);
+    void close_picker();
+
+    Shell& shell_;
+    zwlr_screencopy_manager_v1* screencopy_ = nullptr;
+    wl_shm* shm_ = nullptr;
+    wl_data_device_manager* data_device_manager_ = nullptr;
+    wl_data_device* data_device_ = nullptr;
+    wl_data_source* source_ = nullptr; // our current clipboard offer
+    wl_data_offer* offer_ = nullptr;   // the latest offer to us (never read)
+    std::shared_ptr<const std::vector<uint8_t>> clipboard_;
+    std::unique_ptr<Capture> capture_;
+    std::unique_ptr<RegionPicker> picker_;
+};
+
+} // namespace tetra::shell

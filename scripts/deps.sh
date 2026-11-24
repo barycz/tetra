@@ -33,7 +33,7 @@ packages=(
 
     # dev/test tools: screenshots, reference terminals, X11 test apps,
     # input injection, EGL info, fake PAM for lock screen tests
-    grim foot xterm x11-apps wlrctl mesa-utils libpam-wrapper
+    grim foot xterm x11-apps wlrctl mesa-utils libpam-wrapper wl-clipboard
 )
 
 sudo apt-get update -qq

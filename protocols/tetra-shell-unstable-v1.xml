@@ -13,7 +13,7 @@
     Unstable: both sides are built from the same source tree.
   </description>
 
-  <interface name="tetra_shell_v1" version="3">
+  <interface name="tetra_shell_v1" version="4">
     <enum name="slot_state" bitfield="true">
       <entry name="focused" value="1" summary="a window in this slot has keyboard focus"/>
       <entry name="minimized" value="2" summary="every window in this slot is minimized"/>
@@ -85,6 +85,31 @@
         over; also sent to a shell that binds while that is the case). The
         shell answers by locking with ext-session-lock-v1.
       </description>
+    </event>
+
+    <!-- version 4 -->
+
+    <enum name="screenshot_mode" since="4">
+      <entry name="output" value="1" summary="the whole output"/>
+      <entry name="region" value="2" summary="let the user drag a rectangle on the output"/>
+      <entry name="window" value="3" summary="the given box: the focused window with its frame"/>
+    </enum>
+
+    <event name="screenshot" since="4">
+      <description summary="take a screenshot">
+        Sent for the Print key and its variants. The shell captures the
+        output (wlr-screencopy), saves the picture and puts it on the
+        clipboard; `serial` may be used for wl_data_device.set_selection.
+        The box is in the output's logical coordinates; for "output" and
+        "region" it is the whole output.
+      </description>
+      <arg name="serial" type="uint"/>
+      <arg name="mode" type="uint" enum="screenshot_mode"/>
+      <arg name="output" type="object" interface="wl_output"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
     </event>
   </interface>
 </protocol>

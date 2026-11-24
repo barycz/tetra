@@ -12,6 +12,7 @@
 #include "notifications.hpp"
 #include "osd.hpp"
 #include "polkit_agent.hpp"
+#include "screenshot.hpp"
 #include "tray.hpp"
 
 #include <array>
@@ -63,6 +64,8 @@ public:
     [[nodiscard]] bool connected() const noexcept { return protocol_ != nullptr; }
 
     [[nodiscard]] Audio& audio() noexcept { return *audio_; }
+    [[nodiscard]] Notifications* notifications() noexcept { return notifications_.get(); }
+    [[nodiscard]] const ui::OutputInfo* output_info(const wl_output* output) const;
 
     void activate_slot(std::size_t index);
     void launch_slot(std::size_t index);
@@ -103,6 +106,7 @@ private:
     std::map<uint32_t, ui::OutputInfo> outputs_; // by wl_output global
     std::unique_ptr<LockScreen> lock_screen_;
     std::unique_ptr<Idle> idle_;
+    std::unique_ptr<Screenshots> screenshots_;
     // Bus services; declared after everything they use, so they go first.
     std::unique_ptr<ui::DBusConnection> dbus_;
     std::unique_ptr<ui::DBusConnection> system_bus_;

@@ -11,3 +11,9 @@ tetra_wayland_protocols(tetra-pointer-storm CLIENT
     "${WLR_PROTOCOLS_DIR}/wlr-virtual-pointer-unstable-v1.xml"
 )
 target_link_libraries(tetra-pointer-storm PRIVATE PkgConfig::TEST_TOOL_DEPS tetra_warnings)
+
+add_executable(tetra-pointer pointer.cpp)
+tetra_wayland_protocols(tetra-pointer CLIENT
+    "${WLR_PROTOCOLS_DIR}/wlr-virtual-pointer-unstable-v1.xml"
+)
+target_link_libraries(tetra-pointer PRIVATE PkgConfig::TEST_TOOL_DEPS tetra_warnings)

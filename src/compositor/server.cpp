@@ -231,6 +231,10 @@ void Server::init_protocols() {
     wlr_subcompositor_create(display);
     wlr_data_device_manager_create(display);
     wlr_primary_selection_v1_device_manager_create(display);
+    // Clipboard managers and tools like wl-copy/wl-paste work without
+    // keyboard focus through these.
+    wlr_data_control_manager_v1_create(display);
+    wlr_ext_data_control_manager_v1_create(display, 1);
     wlr_viewporter_create(display);
     wlr_single_pixel_buffer_manager_v1_create(display);
     wlr_fractional_scale_manager_v1_create(display, 1);

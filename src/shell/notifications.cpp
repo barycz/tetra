@@ -231,9 +231,27 @@ void Notifications::dismiss(uint32_t id) {
     close(id, CloseReason::Dismissed);
 }
 
+void Notifications::post(const std::string& summary, const std::string& body,
+                         const std::string& image_path, std::function<void()> on_activate) {
+    std::map<std::string, sdbus::Variant> hints;
+    if (!image_path.empty()) {
+        hints.emplace("image-path", sdbus::Variant(image_path));
+    }
+    const uint32_t id = notify("tetra", 0, "", summary, body, {"default", "Open"}, hints, -1);
+    if (Notification* n = find(id)) {
+        n->on_activate = std::move(on_activate);
+    }
+}
+
 void Notifications::invoke(uint32_t id, const std::string& action) {
     Notification* n = find(id);
     if (n == nullptr) {
+        return;
+    }
+    if (n->on_activate) {
+        auto activate = n->on_activate; // close() frees *n
+        close(id, CloseReason::Dismissed);
+        activate();
         return;
     }
     const bool resident = n->resident;

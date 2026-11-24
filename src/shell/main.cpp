@@ -5,10 +5,13 @@
 #include "shell.hpp"
 
 #include <clocale>
+#include <csignal>
 #include <print>
 
 int main() {
     std::setlocale(LC_ALL, "");
+    // Writes to pipes whose reader left (clipboard, helpers) must fail, not kill us.
+    std::signal(SIGPIPE, SIG_IGN);
 
     auto created = tetra::ui::App::create("tetra-shell");
     if (!created) {

@@ -78,6 +78,8 @@ export ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}verify_asan_link_order=0"
 # The polkit agent's setuid helper ignores LD_PRELOAD; use a stand-in that
 # speaks its protocol and accepts the same test password.
 export TETRA_POLKIT_HELPER="$root/tests/tools/fake-polkit-helper"
+# Screenshots land here, not in the developer's ~/Pictures.
+export XDG_PICTURES_DIR="$runtime/Pictures"
 
 # Tests must not depend on the developer's own ~/.config/tetra. Scenarios
 # may rewrite $TETRA_CONFIG while running (it reloads live).
