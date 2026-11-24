@@ -3,6 +3,7 @@
 #include "bar.hpp"
 #include "launcher.hpp"
 #include "process.hpp"
+#include "protocols.hpp"
 #include "volume_popup.hpp"
 
 #include "tetra-shell-unstable-v1-protocol.h"
@@ -58,6 +59,7 @@ const tetra_shell_v1_listener ShellListener::listener = {
     },
     .media_key = [](void* data, tetra_shell_v1* /*shell*/,
                     uint32_t key) { static_cast<Shell*>(data)->handle_media_key(key); },
+    .lock = [](void* data, tetra_shell_v1* /*shell*/) { static_cast<Shell*>(data)->lock(); },
 };
 
 Shell::Shell(ui::App& app) : app_(app), icons_(app) {
@@ -73,18 +75,45 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
     };
     osd_ = std::make_unique<Osd>(*this);
 
-    protocol_ = static_cast<tetra_shell_v1*>(app_.bind_global(&tetra_shell_v1_interface, 2));
+    protocol_ = static_cast<tetra_shell_v1*>(app_.bind_global(&tetra_shell_v1_interface, 3));
     if (protocol_ != nullptr) {
         tetra_shell_v1_add_listener(protocol_, &ShellListener::listener, this);
     } else {
         std::println(stderr, "tetra-shell: not started by tetra; task bar disabled");
     }
 
-    app_.on_output_added = [this](const ui::OutputInfo& output) {
-        bars_[output.global] = std::make_unique<Bar>(*this, output);
+    lock_screen_ = std::make_unique<LockScreen>(
+        *this, static_cast<ext_session_lock_manager_v1*>(
+                   app_.bind_global(&ext_session_lock_manager_v1_interface, 1)));
+    lock_screen_->on_changed = [this](bool locked) {
+        if (locked && logind_) {
+            logind_->release_sleep_inhibitor(); // the screen is covered: sleep may go ahead
+        }
+        apply_idle_config();
     };
-    app_.on_output_removed = [this](const ui::OutputInfo& output) { bars_.erase(output.global); };
-    app_.on_config_changed = [this] { redraw_bars(); };
+    idle_ = std::make_unique<Idle>(
+        app_.seat(),
+        static_cast<ext_idle_notifier_v1*>(app_.bind_global(&ext_idle_notifier_v1_interface, 1)),
+        static_cast<zwlr_output_power_manager_v1*>(
+            app_.bind_global(&zwlr_output_power_manager_v1_interface, 1)));
+    idle_->on_lock = [this] { lock(); };
+
+    app_.on_output_added = [this](const ui::OutputInfo& output) {
+        outputs_[output.global] = output;
+        bars_[output.global] = std::make_unique<Bar>(*this, output);
+        lock_screen_->add_output(output);
+        idle_->add_output(output.global, output.output);
+    };
+    app_.on_output_removed = [this](const ui::OutputInfo& output) {
+        idle_->remove_output(output.global);
+        lock_screen_->remove_output(output);
+        bars_.erase(output.global);
+        outputs_.erase(output.global);
+    };
+    app_.on_config_changed = [this] {
+        redraw_bars();
+        apply_idle_config();
+    };
 
     dbus_ = ui::DBusConnection::session(app_);
     if (dbus_) {
@@ -96,6 +125,11 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
     }
     system_bus_ = ui::DBusConnection::system(app_);
     brightness_ = std::make_unique<Brightness>(system_bus_ ? &system_bus_->connection() : nullptr);
+    if (system_bus_) {
+        logind_ = std::make_unique<Logind>(system_bus_->connection());
+        logind_->on_lock = [this] { lock(); };
+    }
+    apply_idle_config();
 
     schedule_clock_tick();
     schedule_tray_refresh();
@@ -103,10 +137,13 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
 
 Shell::~Shell() {
     notifications_.reset();
+    logind_.reset();
     brightness_.reset();
     system_bus_.reset();
     dbus_.reset();
     osd_.reset();
+    idle_.reset();
+    lock_screen_.reset();
     volume_popup_.reset();
     launcher_.reset();
     bars_.clear();
@@ -183,6 +220,26 @@ void Shell::hide_volume_popup() {
     app_.add_timer(milliseconds(0), [closing] {});
 }
 
+void Shell::lock() {
+    if (lock_screen_->locked()) {
+        if (logind_) {
+            logind_->release_sleep_inhibitor(); // already covered: let sleep go ahead
+        }
+        return;
+    }
+    hide_launcher();
+    hide_volume_popup();
+    lock_screen_->lock(outputs_);
+}
+
+void Shell::apply_idle_config() {
+    const config::Idle& idle = app_.config().idle;
+    idle_->configure(idle, lock_screen_->active());
+    if (logind_) {
+        logind_->set_lock_before_sleep(idle.lock_before_sleep);
+    }
+}
+
 void Shell::resolve(Slot& slot) const {
     slot.icon.clear();
     slot.name = slot.app_id;
@@ -244,6 +301,7 @@ void Shell::redraw_bars() {
 void Shell::schedule_clock_tick() {
     app_.add_timer(until_next_minute(), [this] {
         redraw_bars();
+        lock_screen_->redraw();
         schedule_clock_tick();
     });
 }

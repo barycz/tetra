@@ -49,6 +49,12 @@ the error is logged by each component.
     "pinned": ["foot", "firefox-esr", "org.gnome.Nautilus"]
   },
 
+  "idle": {
+    "lock_after": 300,            // seconds without input; 0 = never
+    "screen_off_after": 600,      // 0 = never (on the lock screen: 60 s at most)
+    "lock_before_sleep": true
+  },
+
   "terminal": "foot",             // Super+Return and Terminal=true apps
   "shell": "tetra-shell",         // "" to run without a shell
   "autostart": ["nm-applet", "foot --server"]
@@ -75,6 +81,9 @@ the error is logged by each component.
 | `windows.titlebar_height` | integer, 16–96 | `32` | yes |
 | `windows.border_width` | integer, 0–16 | `1` | yes |
 | `taskbar.pinned` | array of desktop IDs, at most 11 | `[]` | yes (open windows stay put) |
+| `idle.lock_after` | integer, seconds, 0–86400 (0: never) | `300` | yes |
+| `idle.screen_off_after` | integer, seconds, 0–86400 (0: never) | `600` | yes |
+| `idle.lock_before_sleep` | bool | `true` | yes |
 | `terminal` | command | `"foot"` | yes |
 | `shell` | command | `"tetra-shell"` | restarts the shell |
 | `autostart` | array of commands | `[]` | at startup only |

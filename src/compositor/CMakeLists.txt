@@ -10,6 +10,7 @@ add_executable(tetra
     output.cpp
     popup.cpp
     server.cpp
+    session_lock.cpp
     shell_protocol.cpp
     taskbar.cpp
     view.cpp
@@ -21,6 +22,7 @@ add_executable(tetra
 # wlr_layer_shell_v1.h includes the generated server header.
 tetra_wayland_protocols(tetra SERVER
     "${WLR_PROTOCOLS_DIR}/wlr-layer-shell-unstable-v1.xml"
+    "${WLR_PROTOCOLS_DIR}/wlr-output-power-management-unstable-v1.xml"
 )
 tetra_wayland_protocols(tetra SERVER_CODE
     "${TETRA_PROTOCOLS_DIR}/tetra-shell-unstable-v1.xml"

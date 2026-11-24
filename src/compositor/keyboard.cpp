@@ -65,6 +65,7 @@ void Keyboard::apply_config(const config::Keyboard& config) {
 }
 
 void Keyboard::handle_key(const wlr_keyboard_key_event& event) {
+    server_.notify_activity();
     const uint32_t keycode = event.keycode + 8; // libinput -> xkb
     const xkb_keysym_t* raw_syms = nullptr;
     const int count = xkb_state_key_get_syms(keyboard_->xkb_state, keycode, &raw_syms);

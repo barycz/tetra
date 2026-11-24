@@ -89,6 +89,7 @@ public:
     [[nodiscard]] wl_compositor* compositor() const noexcept { return compositor_; }
     [[nodiscard]] xdg_wm_base* wm_base() const noexcept { return wm_base_; }
     [[nodiscard]] zwlr_layer_shell_v1* layer_shell() const noexcept { return layer_shell_; }
+    [[nodiscard]] wl_seat* seat() const noexcept { return seat_; }
     [[nodiscard]] zxdg_decoration_manager_v1* decoration_manager() const noexcept {
         return decoration_manager_;
     }

@@ -28,6 +28,8 @@ public:
     // Forwards a volume/brightness key (tetra_shell_v1.media_key); false if
     // no shell can take it.
     bool media_key(uint32_t key);
+    // Asks the shell to lock the session; false if no shell can.
+    bool lock();
 
 private:
     static void bind(wl_client* client, void* data, uint32_t version, uint32_t id);

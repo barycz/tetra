@@ -6,6 +6,9 @@
 #include "dbus.hpp"
 #include "desktop_entry.hpp"
 #include "icons.hpp"
+#include "idle.hpp"
+#include "lock_screen.hpp"
+#include "logind.hpp"
 #include "notifications.hpp"
 #include "osd.hpp"
 #include "tray.hpp"
@@ -67,6 +70,8 @@ public:
     void toggle_volume_popup();
     void hide_volume_popup();
     void launch(const DesktopEntry& entry);
+    // Locks the session (Super+L, idle, logind, before sleep).
+    void lock();
     void redraw_bars();
     // Volume/brightness change from a key or the mouse wheel: apply and show the OSD.
     void handle_media_key(uint32_t key);
@@ -80,6 +85,7 @@ private:
     void resolve(Slot& slot) const;
     void schedule_tray_refresh();
     void schedule_clock_tick();
+    void apply_idle_config();
 
     ui::App& app_;
     ui::IconCache icons_;
@@ -93,10 +99,14 @@ private:
     std::unique_ptr<Launcher> launcher_;
     std::unique_ptr<VolumePopup> volume_popup_;
     std::unique_ptr<Osd> osd_;
+    std::map<uint32_t, ui::OutputInfo> outputs_; // by wl_output global
+    std::unique_ptr<LockScreen> lock_screen_;
+    std::unique_ptr<Idle> idle_;
     // Bus services; declared after everything they use, so they go first.
     std::unique_ptr<ui::DBusConnection> dbus_;
     std::unique_ptr<ui::DBusConnection> system_bus_;
     std::unique_ptr<Brightness> brightness_;
+    std::unique_ptr<Logind> logind_;
     std::unique_ptr<Notifications> notifications_;
 };
 

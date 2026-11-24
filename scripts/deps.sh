@@ -32,8 +32,8 @@ packages=(
     libsdbus-c++-dev libpam0g-dev libnotify-bin libpulse-dev
 
     # dev/test tools: screenshots, reference terminals, X11 test apps,
-    # input injection, EGL info
-    grim foot xterm x11-apps wlrctl mesa-utils
+    # input injection, EGL info, fake PAM for lock screen tests
+    grim foot xterm x11-apps wlrctl mesa-utils libpam-wrapper
 )
 
 sudo apt-get update -qq

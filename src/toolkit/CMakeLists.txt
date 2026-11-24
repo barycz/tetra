@@ -36,8 +36,11 @@ tetra_wayland_protocols(tetra_toolkit CLIENT
     "${WAYLAND_PROTOCOLS_DIR}/stable/xdg-shell/xdg-shell.xml"
     "${WAYLAND_PROTOCOLS_DIR}/stable/tablet/tablet-v2.xml"
     "${WAYLAND_PROTOCOLS_DIR}/staging/cursor-shape/cursor-shape-v1.xml"
+    "${WAYLAND_PROTOCOLS_DIR}/staging/ext-idle-notify/ext-idle-notify-v1.xml"
+    "${WAYLAND_PROTOCOLS_DIR}/staging/ext-session-lock/ext-session-lock-v1.xml"
     "${WAYLAND_PROTOCOLS_DIR}/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml"
     "${WLR_PROTOCOLS_DIR}/wlr-layer-shell-unstable-v1.xml"
+    "${WLR_PROTOCOLS_DIR}/wlr-output-power-management-unstable-v1.xml"
 )
 target_include_directories(tetra_toolkit PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(tetra_toolkit

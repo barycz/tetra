@@ -7,6 +7,7 @@
 #include "log.hpp"
 #include "output.hpp"
 #include "popup.hpp"
+#include "session_lock.hpp"
 #include "shell_protocol.hpp"
 #include "view.hpp"
 #include "xdg_view.hpp"
@@ -47,6 +48,8 @@ Server::~Server() {
     // Order matters: wlroots asserts that no listeners remain on objects it
     // destroys, so tear down our side first, then wlroots in reverse order.
     terminating_ = true;
+    session_lock_.reset(); // its listeners must not run while clients go away
+    idle_inhibitors_.clear();
     if (display != nullptr) {
         wl_display_destroy_clients(display);
     }
@@ -71,7 +74,8 @@ Server::~Server() {
           &new_xdg_decoration_, &new_virtual_pointer_, &new_virtual_keyboard_,
           &request_cursor_shape_, &cursor_motion_, &cursor_motion_absolute_, &cursor_button_,
           &cursor_axis_, &cursor_frame_, &request_cursor_, &pointer_focus_change_,
-          &request_set_selection_, &request_set_primary_selection_}) {
+          &request_set_selection_, &request_set_primary_selection_, &new_idle_inhibitor_,
+          &output_power_set_mode_, &layout_change_}) {
         listener->disconnect();
     }
     for (wl_event_source* source : signal_sources_) {
@@ -153,6 +157,12 @@ std::expected<void, std::string> Server::init() {
     layers.fullscreen = wlr_scene_tree_create(&scene->tree);
     layers.unmanaged = wlr_scene_tree_create(&scene->tree);
     layers.overlay = wlr_scene_tree_create(&scene->tree);
+    session_lock_ = std::make_unique<SessionLock>(*this); // its cover goes above everything
+    layout_change_.connect(output_layout->events.change, [this] {
+        if (session_lock_) {
+            session_lock_->handle_layout_changed();
+        }
+    });
 
     init_protocols();
     init_input();
@@ -227,6 +237,30 @@ void Server::init_protocols() {
     wlr_presentation_create(display, backend, 2);
     wlr_screencopy_manager_v1_create(display);
     wlr_xdg_output_manager_v1_create(display, output_layout);
+
+    // Idle: clients (tetra-shell) get notified after a timeout without
+    // input, unless an app inhibits it (video players).
+    idle_notifier_ = wlr_idle_notifier_v1_create(display);
+    auto* idle_inhibit = wlr_idle_inhibit_v1_create(display);
+    new_idle_inhibitor_.connect<wlr_idle_inhibitor_v1>(
+        idle_inhibit->events.new_inhibitor, [this](wlr_idle_inhibitor_v1* inhibitor) {
+            auto entry = std::make_unique<IdleInhibitor>();
+            IdleInhibitor* raw = entry.get();
+            entry->destroy.connect(inhibitor->events.destroy, [this, raw] {
+                std::erase_if(idle_inhibitors_, [raw](const auto& e) { return e.get() == raw; });
+                update_idle_inhibit();
+            });
+            idle_inhibitors_.push_back(std::move(entry));
+            update_idle_inhibit();
+        });
+    // Screens off/on (the shell blanks them when idle).
+    auto* output_power = wlr_output_power_manager_v1_create(display);
+    output_power_set_mode_.connect<wlr_output_power_v1_set_mode_event>(
+        output_power->events.set_mode, [this](wlr_output_power_v1_set_mode_event* event) {
+            if (Output* output = find_output(event->output)) {
+                output->set_power(event->mode == ZWLR_OUTPUT_POWER_V1_MODE_ON);
+            }
+        });
 
     xdg_shell = wlr_xdg_shell_create(display, kXdgShellVersion);
     new_toplevel_.connect<wlr_xdg_toplevel>(
@@ -322,8 +356,55 @@ void Server::terminate() {
 }
 
 void Server::show_launcher() {
-    if (shell_protocol_) {
+    if (shell_protocol_ && !locked()) {
         shell_protocol_->show_launcher();
+    }
+}
+
+// --- session lock and idle ------------------------------------------------------------
+
+void Server::request_lock() {
+    if (shell_protocol_ && (!locked() || lock_abandoned())) {
+        shell_protocol_->lock();
+    }
+}
+
+bool Server::locked() const noexcept {
+    return session_lock_ && session_lock_->active();
+}
+
+bool Server::lock_abandoned() const noexcept {
+    return session_lock_ && session_lock_->abandoned();
+}
+
+void Server::handle_lock_changed() {
+    if (terminating_) {
+        return;
+    }
+    if (locked()) {
+        end_grab();
+        set_hovered_decoration(nullptr, Decoration::Part::None);
+    }
+    restore_keyboard_focus();
+    schedule_pointer_refocus();
+}
+
+void Server::handle_output_frame(wlr_output* output) {
+    if (session_lock_) {
+        session_lock_->handle_output_frame(output);
+    }
+}
+
+void Server::notify_activity() {
+    if (idle_notifier_ != nullptr) {
+        wlr_idle_notifier_v1_notify_activity(idle_notifier_, seat);
+    }
+}
+
+void Server::update_idle_inhibit() {
+    // Simplification: any inhibitor counts, visible or not.
+    if (idle_notifier_ != nullptr) {
+        wlr_idle_notifier_v1_set_inhibited(idle_notifier_, !idle_inhibitors_.empty());
     }
 }
 

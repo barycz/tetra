@@ -39,6 +39,9 @@ public:
     void apply_config(const config::Output* config);
     void update_background();
     void arrange_layers();
+    // Screen blanking (wlr-output-power-management): turns the display off
+    // without taking it out of the layout, and back on in the same mode.
+    void set_power(bool on);
 
     void add_layer_surface(wlr_layer_surface_v1* layer_surface);
     void remove_layer_surface(LayerSurface& surface);
@@ -68,6 +71,9 @@ private:
     wlr_output* output_;
     wlr_scene_rect* background_ = nullptr;
     wlr_box usable_area_{};
+    bool powered_ = true;
+    wlr_output_mode* saved_mode_ = nullptr;  // mode before power-off (null: custom)
+    config::OutputMode saved_custom_mode_{}; // headless/nested outputs
     std::vector<std::unique_ptr<LayerSurface>> layer_surfaces_;
     std::chrono::steady_clock::time_point last_slow_frame_log_;
 

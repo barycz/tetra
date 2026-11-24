@@ -21,6 +21,7 @@ namespace tetra {
 class Keyboard;
 class LayerSurface;
 class Output;
+class SessionLock;
 class ShellProtocol;
 class View;
 
@@ -56,6 +57,17 @@ public:
     [[nodiscard]] View* focused_view() const noexcept { return focused_view_; }
     // Super tap: ask the shell to open its launcher.
     void show_launcher();
+
+    // --- session lock and idle (server.cpp) -------------------------------------
+    // Asks the shell to lock the session (Super+L, or a lock client died).
+    void request_lock();
+    [[nodiscard]] bool locked() const noexcept;
+    [[nodiscard]] bool lock_abandoned() const noexcept;
+    // Keyboard and pointer focus follow the lock state.
+    void handle_lock_changed();
+    void handle_output_frame(wlr_output* output);
+    // User input: resets idle timers (ext-idle-notify).
+    void notify_activity();
 
     // --- outputs & layers (wm.cpp) -------------------------------------------
     [[nodiscard]] Output* find_output(wlr_output* wlr_output) const;
@@ -184,6 +196,13 @@ private:
     DesktopDatabase desktop_entries_;
     Taskbar taskbar_{*this};
     std::unique_ptr<ShellProtocol> shell_protocol_;
+    std::unique_ptr<SessionLock> session_lock_;
+    wlr_idle_notifier_v1* idle_notifier_ = nullptr;
+    struct IdleInhibitor {
+        Listener destroy;
+    };
+    std::vector<std::unique_ptr<IdleInhibitor>> idle_inhibitors_;
+    void update_idle_inhibit();
     std::optional<FileWatcher> config_watcher_;
     wl_event_source* config_source_ = nullptr;
 
@@ -242,6 +261,9 @@ private:
     Listener pointer_focus_change_;
     Listener request_set_selection_;
     Listener request_set_primary_selection_;
+    Listener new_idle_inhibitor_;
+    Listener output_power_set_mode_;
+    Listener layout_change_;
 };
 
 } // namespace tetra

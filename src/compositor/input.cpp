@@ -5,6 +5,7 @@
 #include "layer_surface.hpp"
 #include "log.hpp"
 #include "server.hpp"
+#include "session_lock.hpp"
 #include "shell_protocol.hpp"
 
 #include "tetra-shell-unstable-v1-protocol.h"
@@ -33,20 +34,24 @@ void Server::init_input() {
     cursor_manager = wlr_xcursor_manager_create(nullptr, kCursorSize);
 
     cursor_motion_.connect<wlr_pointer_motion_event>(cursor->events.motion, [this](auto* event) {
+        notify_activity();
         wlr_cursor_move(cursor, &event->pointer->base, event->delta_x, event->delta_y);
         handle_cursor_motion(event->time_msec);
     });
     cursor_motion_absolute_.connect<wlr_pointer_motion_absolute_event>(
         cursor->events.motion_absolute, [this](auto* event) {
+            notify_activity();
             wlr_cursor_warp_absolute(cursor, &event->pointer->base, event->x, event->y);
             handle_cursor_motion(event->time_msec);
         });
     cursor_button_.connect<wlr_pointer_button_event>(cursor->events.button, [this](auto* event) {
+        notify_activity();
         flush_pointer_motion(); // clients must see where the click happens
         handle_cursor_button(*event);
         pointer_frame_pending_ = true;
     });
     cursor_axis_.connect<wlr_pointer_axis_event>(cursor->events.axis, [this](auto* event) {
+        notify_activity();
         flush_pointer_motion();
         wlr_seat_pointer_notify_axis(seat, event->time_msec, event->orientation, event->delta,
                                      event->delta_discrete, event->source,
@@ -328,6 +333,15 @@ void Server::handle_cursor_button(const wlr_pointer_button_event& event) {
         keyboard->cancel_super_tap(); // Super+click is not a Super tap
     }
     const Hit hit = hit_test(cursor->x, cursor->y);
+    if (locked()) {
+        // Only lock surfaces are reachable (the cover hides the rest); a
+        // click picks the one that gets the keyboard.
+        if (hit.surface != nullptr) {
+            session_lock_->focus(hit.surface);
+        }
+        wlr_seat_pointer_notify_button(seat, event.time_msec, event.button, event.state);
+        return;
+    }
     log::debug("press at {:.0f},{:.0f}: view '{}' decoration part {}", cursor->x, cursor->y,
                hit.view != nullptr ? hit.view->title() : "-",
                static_cast<int>(hit.decoration.part));
@@ -493,10 +507,19 @@ bool Server::handle_keybinding(uint32_t modifiers, xkb_keysym_t sym) {
         return shell_protocol_ && shell_protocol_->media_key(media_key);
     }
 
+    // While locked, every other key goes to the lock screen.
+    if (locked()) {
+        return false;
+    }
+
     // Built-in bindings; configurable bindings come with the task bar.
     const bool super = (modifiers & WLR_MODIFIER_LOGO) != 0;
     const bool shift = (modifiers & WLR_MODIFIER_SHIFT) != 0;
     const bool alt = (modifiers & WLR_MODIFIER_ALT) != 0;
+    if (super && (sym == XKB_KEY_l || sym == XKB_KEY_L)) {
+        request_lock();
+        return true;
+    }
     if (super && shift && sym == XKB_KEY_Escape) {
         terminate();
         return true;

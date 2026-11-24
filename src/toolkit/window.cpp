@@ -400,6 +400,33 @@ void LayerWindow::set_size(int width, int height) {
     wl_surface_commit(surface_);
 }
 
+// --- LockWindow ----------------------------------------------------------------------
+
+struct LockListeners {
+    static const ext_session_lock_surface_v1_listener listener;
+};
+
+const ext_session_lock_surface_v1_listener LockListeners::listener = {
+    .configure =
+        [](void* data, ext_session_lock_surface_v1* surface, uint32_t serial, uint32_t width,
+           uint32_t height) {
+            auto* self = static_cast<LockWindow*>(data);
+            ext_session_lock_surface_v1_ack_configure(surface, serial);
+            self->resize(static_cast<int>(width), static_cast<int>(height));
+        },
+};
+
+LockWindow::LockWindow(App& app, ext_session_lock_v1* lock, wl_output* output) : Window(app) {
+    lock_surface_ = ext_session_lock_v1_get_lock_surface(lock, surface_, output);
+    ext_session_lock_surface_v1_add_listener(lock_surface_, &LockListeners::listener, this);
+    // No commit before the first configure: the protocol forbids a buffer
+    // until then, and the configure arrives unprompted.
+}
+
+LockWindow::~LockWindow() {
+    ext_session_lock_surface_v1_destroy(lock_surface_);
+}
+
 // --- ToplevelWindow ------------------------------------------------------------------
 
 struct ToplevelListeners {

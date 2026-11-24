@@ -3,6 +3,7 @@
 #include "layer_surface.hpp"
 #include "output.hpp"
 #include "server.hpp"
+#include "session_lock.hpp"
 #include "view.hpp"
 
 #include <algorithm>
@@ -57,6 +58,9 @@ void Server::handle_usable_area_changed(Output& output) {
 }
 
 void Server::destroy_output(Output& output) {
+    if (session_lock_) {
+        session_lock_->handle_output_destroyed(output.wlr());
+    }
     std::erase_if(outputs_, [&](const auto& ptr) { return ptr.get() == &output; });
     // Rescue windows that were only visible on the removed output.
     const wlr_box area = usable_area_at_cursor();
@@ -144,7 +148,9 @@ void Server::set_keyboard_focus(wlr_surface* surface) {
 }
 
 void Server::restore_keyboard_focus() {
-    if (exclusive_layer_ != nullptr) {
+    if (locked()) {
+        set_keyboard_focus(session_lock_->focus_surface()); // nothing else while locked
+    } else if (exclusive_layer_ != nullptr) {
         set_keyboard_focus(exclusive_layer_->wlr()->surface);
     } else if (focused_layer_ != nullptr) {
         set_keyboard_focus(focused_layer_->wlr()->surface);

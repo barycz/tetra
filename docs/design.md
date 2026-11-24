@@ -293,6 +293,32 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   stationary cursor, the compositor re-runs pointer focus on idle, so the
   surface now under the cursor gets enter/leave without waiting for the
   next mouse move. It skips this while a button is held.
+- **Lock screen** (`ext-session-lock-v1`): the compositor's side is
+  `SessionLock`. While locked, an opaque cover sits above every layer,
+  so only lock surfaces are visible or reachable. Lock surfaces get all
+  keyboard input; a click picks between outputs. Only VT switching and the
+  media keys bypass it. "locked" is sent once every output has drawn the
+  cover. If the lock client dies without unlocking, the session stays
+  covered ("abandoned") and accepts a new lock client. The compositor asks
+  the shell to lock (`tetra_shell_v1.lock`, protocol version 3); a
+  restarted shell is asked as soon as it binds. A second lock client while
+  locked gets `finished`.
+  The shell draws the clock, date, user name and a password field on each
+  output. It checks the password with PAM on a worker thread (service
+  `tetra`, shipped as `data/pam.d/tetra`; without it Debian's `other`
+  stack applies). The password buffer is wiped after use.
+  Super+L locks. If the shell exits while locked, the session stays locked.
+- **Idle** (`ext-idle-notify-v1` + `idle-inhibit-unstable-v1`): input
+  resets the compositor's idle timers, and any idle inhibitor (video
+  players) suspends them. Simplification: inhibitors count even when their
+  surface is hidden. The shell locks after `idle.lock_after`. It blanks the
+  screens after `idle.screen_off_after` (60 s at most on the lock screen)
+  through `wlr-output-power-management`. The compositor disables the output
+  but keeps it in the layout, and restores the same mode on wake.
+- **logind**: Session.Lock (`loginctl lock-session`) locks. With
+  `idle.lock_before_sleep`, the shell holds a delay inhibitor for sleep: on
+  PrepareForSleep it locks, then releases the inhibitor once the compositor
+  confirms the lock, so the machine never wakes up unlocked.
 
 ## Development workflow
 
@@ -305,6 +331,13 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   key chords with our `tetra-sendkeys` (`super+F1`, `super` …).
   `scripts/run-tests.sh` runs all scenarios (ASan by default) and flags
   crashes and sanitizer reports; the screenshots still need looking at.
+  A scenario can ask for a longer wait with a `# wait: SECS` header line.
+- **Lock screen tests:** the headless session runs under pam_wrapper
+  (LD_PRELOAD) with a `tetra` service backed by pam_matrix. Only
+  `$TETRA_TEST_PASSWORD` is accepted, so tests never touch real accounts
+  or passwords. ASan needs `PAM_WRAPPER_DISABLE_DEEPBIND=1`. Scenarios
+  change settings such as idle timeouts by rewriting `$TETRA_CONFIG`
+  (live reload).
 - The seat always advertises a keyboard, so clients hold a `wl_keyboard`
   before any (virtual or hot-plugged) keyboard appears.
 - **Real session:** from a spare TTY, or later through a `wayland-sessions`
@@ -321,7 +354,8 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
 2. **Task bar** — private protocol, F-key slots, launcher, basic tray.
    *(done; window-list popup, tooltips and pinning from the UI pending)*
 3. **Shell services** — notifications, OSD, lock/idle, polkit agent, screenshots, SNI tray.
-   *(in progress: D-Bus layer, notifications and volume/brightness OSD done)*
+   *(in progress: D-Bus layer, notifications, volume/brightness OSD, lock
+   screen and idle done)*
 4. **Settings app.**
 5. **Apps and portal** — terminal, system monitor, portal backend.
 6. **Final pieces** — greeter, animations, polish.

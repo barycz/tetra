@@ -8,7 +8,8 @@ Status: phase 2 — compositor with server-side decorations, layer-shell and
 Xwayland; ImGui toolkit; `tetra-shell` with the F-key task bar (12 slots in
 groups of four), app launcher, network/battery indicators and clock;
 desktop notifications (`notify-send` works); volume control in the tray and
-a volume/brightness OSD for the media keys; one JSON configuration with live
+a volume/brightness OSD for the media keys; a lock screen (PAM) with idle
+locking, screen blanking and locking before sleep; one JSON configuration with live
 reload ([docs/config.md](docs/config.md)). Phase 3 (shell services) in progress.
 
 ## Building (Debian 13)
@@ -74,6 +75,7 @@ printf '[Desktop Entry]\nName=tetra (dev build)\nExec=%s\nType=Application\n' \
 | Alt+Tab | cycle windows (also brings back minimized ones) |
 | Alt+F4 | close window |
 | Super+Return | open a terminal (`terminal` in the config, foot by default) |
+| Super+L | lock the screen (also after `idle.lock_after`, before sleep, `loginctl lock-session`) |
 | Super+Shift+Escape | quit tetra |
 | Ctrl+Alt+F1…F12 | switch VT |
 | Volume / mute / mic-mute keys | change the volume (OSD); also the wheel over the tray speaker |
@@ -88,7 +90,8 @@ Pin apps to slots with `taskbar.pinned` in `~/.config/tetra/config.json`.
 src/core/         config, theme palette, desktop entries, process spawning (shared)
 src/compositor/   the compositor (binary: tetra), incl. the task bar slot model
 src/toolkit/      ImGui-on-Wayland toolkit for the shell and apps (incl. icons)
-src/shell/        tetra-shell: bar, launcher, tray, notifications, volume/OSD
+src/shell/        tetra-shell: bar, launcher, tray, notifications, volume/OSD, lock screen, idle
+data/             files installed alongside (PAM service for the lock screen)
 protocols/        tetra's private Wayland protocol (compositor <-> shell)
 scripts/          deps, vendored build, headless runner, test runner
 tests/headless/   scripted headless scenarios

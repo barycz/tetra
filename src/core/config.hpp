@@ -80,6 +80,14 @@ struct Taskbar {
     bool operator==(const Taskbar&) const = default;
 };
 
+struct Idle {
+    // Seconds without input; 0 disables. Apps playing video can inhibit both.
+    int lock_after = 300;
+    int screen_off_after = 600;
+    bool lock_before_sleep = true; // suspend/hibernate lock first
+    bool operator==(const Idle&) const = default;
+};
+
 struct Config {
     Keyboard keyboard;
     std::vector<Output> outputs;
@@ -87,6 +95,7 @@ struct Config {
     Desktop desktop;
     Windows windows;
     Taskbar taskbar;
+    Idle idle;
     std::string shell = "tetra-shell"; // empty: do not start a shell
     std::string terminal = "foot";     // for Terminal=true apps and Super+Return
     std::vector<std::string> autostart;

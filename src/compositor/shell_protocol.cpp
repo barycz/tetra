@@ -9,7 +9,7 @@
 namespace tetra {
 
 namespace {
-constexpr int kVersion = 2;
+constexpr int kVersion = 3;
 }
 
 struct ShellProtocolImpl {
@@ -71,6 +71,12 @@ void ShellProtocol::bind(wl_client* client, void* data, uint32_t version, uint32
         send_slot(resource, i, self->last_.at(i));
     }
     tetra_shell_v1_send_done(resource);
+
+    // A lock client died while this shell was gone (or before it started).
+    if (self->server_.lock_abandoned() &&
+        wl_resource_get_version(resource) >= TETRA_SHELL_V1_LOCK_SINCE_VERSION) {
+        tetra_shell_v1_send_lock(resource);
+    }
 }
 
 void ShellProtocol::send_slot(wl_resource* resource, std::size_t index,
@@ -109,6 +115,17 @@ bool ShellProtocol::media_key(uint32_t key) {
     for (wl_resource* resource : resources_) {
         if (wl_resource_get_version(resource) >= TETRA_SHELL_V1_MEDIA_KEY_SINCE_VERSION) {
             tetra_shell_v1_send_media_key(resource, key);
+            sent = true;
+        }
+    }
+    return sent;
+}
+
+bool ShellProtocol::lock() {
+    bool sent = false;
+    for (wl_resource* resource : resources_) {
+        if (wl_resource_get_version(resource) >= TETRA_SHELL_V1_LOCK_SINCE_VERSION) {
+            tetra_shell_v1_send_lock(resource);
             sent = true;
         }
     }

@@ -9,6 +9,8 @@
 #include <string>
 
 struct ImGuiContext;
+struct ext_session_lock_surface_v1;
+struct ext_session_lock_v1;
 struct wl_egl_window;
 struct xdg_surface;
 struct xdg_toplevel;
@@ -130,6 +132,23 @@ private:
     friend struct LayerListeners;
     Options options_;
     zwlr_layer_surface_v1* layer_surface_ = nullptr;
+};
+
+// An ext-session-lock surface: covers one output while the session is
+// locked. The compositor decides its size.
+class LockWindow : public Window {
+public:
+    LockWindow(App& app, ext_session_lock_v1* lock, wl_output* output);
+    ~LockWindow() override;
+
+    LockWindow(const LockWindow&) = delete;
+    LockWindow& operator=(const LockWindow&) = delete;
+    LockWindow(LockWindow&&) = delete;
+    LockWindow& operator=(LockWindow&&) = delete;
+
+private:
+    friend struct LockListeners;
+    ext_session_lock_surface_v1* lock_surface_ = nullptr;
 };
 
 // A regular application window with server-side decorations.

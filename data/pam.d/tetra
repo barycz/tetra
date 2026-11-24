@@ -1,0 +1,4 @@
+# PAM configuration for the tetra lock screen (Debian layout).
+# Without this file PAM uses /etc/pam.d/other, which on Debian is the same.
+@include common-auth
+@include common-account

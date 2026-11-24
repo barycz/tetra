@@ -13,7 +13,7 @@
     Unstable: both sides are built from the same source tree.
   </description>
 
-  <interface name="tetra_shell_v1" version="2">
+  <interface name="tetra_shell_v1" version="3">
     <enum name="slot_state" bitfield="true">
       <entry name="focused" value="1" summary="a window in this slot has keyboard focus"/>
       <entry name="minimized" value="2" summary="every window in this slot is minimized"/>
@@ -74,6 +74,17 @@
         the volume or brightness and shows the on-screen display.
       </description>
       <arg name="key" type="uint" enum="media_key"/>
+    </event>
+
+    <!-- version 3 -->
+
+    <event name="lock" since="3">
+      <description summary="lock the session now">
+        Sent for Super+L, and when a session lock client died without
+        unlocking (the session stays covered until a new lock client takes
+        over; also sent to a shell that binds while that is the case). The
+        shell answers by locking with ext-session-lock-v1.
+      </description>
     </event>
   </interface>
 </protocol>

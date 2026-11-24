@@ -9,6 +9,7 @@
 #include <initializer_list>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 namespace tetra::config {
 
@@ -171,7 +172,7 @@ Config parse(const json& root, Reader& reader) {
     Reader::expect_object(root, "");
     reader.check_keys(root, "",
                       {"$schema", "keyboard", "outputs", "theme", "desktop", "windows", "taskbar",
-                       "shell", "terminal", "autostart"});
+                       "idle", "shell", "terminal", "autostart"});
 
     if (auto it = root.find("keyboard"); it != root.end()) {
         const auto& kb = Reader::expect_object(*it, "keyboard");
@@ -258,6 +259,22 @@ Config parse(const json& root, Reader& reader) {
             throw ConfigError(std::format("'taskbar.pinned' holds at most {} apps (one slot stays "
                                           "free for other windows)",
                                           Taskbar::kMaxPins));
+        }
+    }
+
+    if (auto it = root.find("idle"); it != root.end()) {
+        const auto& idle = Reader::expect_object(*it, "idle");
+        reader.check_keys(idle, "idle.", {"lock_after", "screen_off_after", "lock_before_sleep"});
+        Reader::read(idle, "idle.", "lock_after", config.idle.lock_after);
+        Reader::read(idle, "idle.", "screen_off_after", config.idle.screen_off_after);
+        Reader::read(idle, "idle.", "lock_before_sleep", config.idle.lock_before_sleep);
+        constexpr int kDay = 24 * 60 * 60;
+        for (const auto& [key, value] : {std::pair{"lock_after", config.idle.lock_after},
+                                         std::pair{"screen_off_after", config.idle.screen_off_after}}) {
+            if (value < 0 || value > kDay) {
+                throw ConfigError(std::format("'idle.{}' must be between 0 (never) and {} seconds",
+                                              key, kDay));
+            }
         }
     }
 

@@ -117,8 +117,37 @@ bool Output::set_mode(wlr_output_state& state, const config::OutputMode& wanted)
     return true;
 }
 
+void Output::set_power(bool on) {
+    if (on == powered_) {
+        return;
+    }
+    wlr_output_state state;
+    wlr_output_state_init(&state);
+    wlr_output_state_set_enabled(&state, on);
+    if (on) {
+        if (saved_mode_ != nullptr) {
+            wlr_output_state_set_mode(&state, saved_mode_);
+        } else if (saved_custom_mode_.width > 0) {
+            set_mode(state, saved_custom_mode_);
+        }
+    } else {
+        saved_mode_ = output_->current_mode;
+        saved_custom_mode_ = {.width = output_->width,
+                              .height = output_->height,
+                              .refresh = output_->refresh / 1000.0};
+    }
+    if (wlr_output_commit_state(output_, &state)) {
+        powered_ = on;
+        log::info("output {}: screen {}", output_->name, on ? "on" : "off");
+    } else {
+        log::error("output {}: cannot turn the screen {}", output_->name, on ? "on" : "off");
+    }
+    wlr_output_state_finish(&state);
+}
+
 void Output::apply_config(const config::Output* config) {
     const bool enabled = config == nullptr || config->enabled;
+    powered_ = true; // a configuration change wakes a blanked screen
 
     wlr_output_state state;
     wlr_output_state_init(&state);
@@ -262,6 +291,7 @@ void Output::render_frame() {
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);
     wlr_scene_output_send_frame_done(scene_output, &now);
+    server_.handle_output_frame(output_);
 }
 
 std::string Output::take_stats() {

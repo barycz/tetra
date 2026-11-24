@@ -56,7 +56,27 @@ export LSAN_OPTIONS="${LSAN_OPTIONS:-suppressions=$root/scripts/lsan.supp:print_
 # Test helpers (tetra-sendkeys) for the scenario scripts.
 export PATH="$root/build/$preset/tests/tools:$PATH"
 
-# Tests must not depend on the developer's own ~/.config/tetra.
+# The lock screen must never check (or need) a real password: everything
+# runs under pam_wrapper (it only intercepts PAM calls, i.e. the shell's),
+# with a "tetra" service whose pam_matrix module accepts only
+# $TETRA_TEST_PASSWORD for the current user.
+export TETRA_TEST_PASSWORD="tetra-test"
+pam_modules=/usr/lib/x86_64-linux-gnu/pam_wrapper
+mkdir -p "$runtime/pam.d"
+echo "$(id -un):$TETRA_TEST_PASSWORD:tetra" >"$runtime/passdb"
+cat >"$runtime/pam.d/tetra" <<EOF
+auth    required $pam_modules/pam_matrix.so passdb=$runtime/passdb
+account required $pam_modules/pam_matrix.so passdb=$runtime/passdb
+EOF
+export LD_PRELOAD="libpam_wrapper.so${LD_PRELOAD:+:$LD_PRELOAD}"
+export PAM_WRAPPER=1 PAM_WRAPPER_SERVICE_DIR="$runtime/pam.d"
+# Sanitizer builds: pam_wrapper is preloaded ahead of the ASan runtime, and
+# its RTLD_DEEPBIND dlopen of libpam would make ASan abort.
+export PAM_WRAPPER_DISABLE_DEEPBIND=1
+export ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}verify_asan_link_order=0"
+
+# Tests must not depend on the developer's own ~/.config/tetra. Scenarios
+# may rewrite $TETRA_CONFIG while running (it reloads live).
 if [[ -z "$config" ]]; then
     config="$runtime/config.json"
     echo '{}' >"$config"
