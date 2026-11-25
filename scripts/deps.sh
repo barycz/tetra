@@ -31,6 +31,9 @@ packages=(
     # PAM (lock screen), PulseAudio API (volume, served by pipewire-pulse)
     libsdbus-c++-dev libpam0g-dev libnotify-bin libpulse-dev
 
+    # apps: terminal emulation
+    libvterm-dev
+
     # dev/test tools: screenshots, reference terminals, X11 test apps,
     # input injection, EGL info, fake PAM for lock screen tests, display
     # management client, a private sound server for audio tests

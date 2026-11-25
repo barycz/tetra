@@ -1,5 +1,6 @@
 #include "app.hpp"
 
+#include "clipboard.hpp"
 #include "keymap.hpp"
 #include "protocols.hpp"
 #include "window.hpp"
@@ -28,6 +29,8 @@ std::filesystem::path config_path() {
     return config::active_file();
 }
 
+} // namespace
+
 std::string find_font(const std::string& family) {
     FcInit();
     FcPattern* pattern = FcNameParse(reinterpret_cast<const FcChar8*>(family.c_str())); // NOLINT
@@ -46,6 +49,8 @@ std::string find_font(const std::string& family) {
     FcPatternDestroy(pattern);
     return path;
 }
+
+namespace {
 
 uint32_t cursor_shape(int imgui_cursor) {
     switch (imgui_cursor) {
@@ -146,32 +151,46 @@ const wl_pointer_listener Listeners::pointer = {
            uint32_t state) {
             auto* app = static_cast<App*>(data);
             app->pointer_serial_ = serial;
+            if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+                app->input_serial_ = serial;
+            }
             if (app->pointer_window_ != nullptr) {
                 app->pointer_window_->handle_pointer_button(button,
                                                             state == WL_POINTER_BUTTON_STATE_PRESSED);
             }
         },
+    // Scrolling is gathered over a pointer frame: wheels send value120
+    // (120 per notch) besides the value, touchpads only the value.
     .axis =
         [](void* data, wl_pointer* /*pointer*/, uint32_t /*time*/, uint32_t axis, wl_fixed_t value) {
             auto* app = static_cast<App*>(data);
-            if (app->pointer_window_ == nullptr) {
-                return;
+            app->axis_value_.at(axis == WL_POINTER_AXIS_VERTICAL_SCROLL ? 1 : 0) += wl_fixed_to_double(value);
+        },
+    .frame =
+        [](void* data, wl_pointer* /*pointer*/) {
+            auto* app = static_cast<App*>(data);
+            // Notches, positive = up/left (ImGui); Wayland: positive = down/right,
+            // about 15 units per wheel notch.
+            std::array<double, 2> notches{};
+            for (std::size_t i = 0; i < 2; ++i) {
+                notches.at(i) = app->axis_value120_.at(i) != 0 ? -app->axis_value120_.at(i) / 120.0
+                                                               : -app->axis_value_.at(i) / 15.0;
             }
-            // Wayland: 10 units per wheel notch, positive = down/right.
-            const double notches = -wl_fixed_to_double(value) / 10.0;
-            if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL) {
-                app->pointer_window_->handle_pointer_axis(0, notches);
-            } else {
-                app->pointer_window_->handle_pointer_axis(notches, 0);
+            app->axis_value_ = {};
+            app->axis_value120_ = {};
+            if (app->pointer_window_ != nullptr && (notches[0] != 0 || notches[1] != 0)) {
+                app->pointer_window_->handle_pointer_axis(notches[0], notches[1]);
             }
         },
-    .frame = [](void* /*data*/, wl_pointer* /*pointer*/) {},
     .axis_source = [](void* /*data*/, wl_pointer* /*pointer*/, uint32_t /*source*/) {},
     .axis_stop = [](void* /*data*/, wl_pointer* /*pointer*/, uint32_t /*time*/, uint32_t /*axis*/) {},
     .axis_discrete = [](void* /*data*/, wl_pointer* /*pointer*/, uint32_t /*axis*/,
                         int32_t /*discrete*/) {},
-    .axis_value120 = [](void* /*data*/, wl_pointer* /*pointer*/, uint32_t /*axis*/,
-                        int32_t /*value120*/) {},
+    .axis_value120 =
+        [](void* data, wl_pointer* /*pointer*/, uint32_t axis, int32_t value120) {
+            auto* app = static_cast<App*>(data);
+            app->axis_value120_.at(axis == WL_POINTER_AXIS_VERTICAL_SCROLL ? 1 : 0) += value120;
+        },
     .axis_relative_direction = [](void* /*data*/, wl_pointer* /*pointer*/, uint32_t /*axis*/,
                                   uint32_t /*direction*/) {},
     .warp = [](void* /*data*/, wl_pointer* /*pointer*/, wl_fixed_t /*x*/, wl_fixed_t /*y*/) {},
@@ -181,9 +200,10 @@ const wl_keyboard_listener Listeners::keyboard = {
     .keymap = [](void* data, wl_keyboard* /*keyboard*/, uint32_t format, int32_t fd,
                  uint32_t size) { static_cast<App*>(data)->handle_keymap(format, fd, size); },
     .enter =
-        [](void* data, wl_keyboard* /*keyboard*/, uint32_t /*serial*/, wl_surface* surface,
+        [](void* data, wl_keyboard* /*keyboard*/, uint32_t serial, wl_surface* surface,
            wl_array* /*keys*/) {
             auto* app = static_cast<App*>(data);
+            app->input_serial_ = serial;
             app->keyboard_window_ = app->window_for(surface);
             if (app->keyboard_window_ != nullptr) {
                 app->keyboard_window_->handle_keyboard_focus(true);
@@ -199,9 +219,13 @@ const wl_keyboard_listener Listeners::keyboard = {
             app->keyboard_window_ = nullptr;
         },
     .key =
-        [](void* data, wl_keyboard* /*keyboard*/, uint32_t /*serial*/, uint32_t /*time*/,
+        [](void* data, wl_keyboard* /*keyboard*/, uint32_t serial, uint32_t /*time*/,
            uint32_t key, uint32_t state) {
-            static_cast<App*>(data)->handle_key(key, state == WL_KEYBOARD_KEY_STATE_PRESSED);
+            auto* app = static_cast<App*>(data);
+            if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+                app->input_serial_ = serial;
+            }
+            app->handle_key(key, state == WL_KEYBOARD_KEY_STATE_PRESSED);
         },
     .modifiers =
         [](void* data, wl_keyboard* /*keyboard*/, uint32_t /*serial*/, uint32_t depressed,
@@ -263,6 +287,13 @@ App::App(std::string app_id) : app_id_(std::move(app_id)) {}
 
 App::~App() {
     // Windows are owned by the application and must be gone by now.
+    clipboard_.reset();
+    if (data_device_manager_ != nullptr) {
+        wl_data_device_manager_destroy(data_device_manager_);
+    }
+    if (primary_selection_manager_ != nullptr) {
+        zwp_primary_selection_device_manager_v1_destroy(primary_selection_manager_);
+    }
     if (cursor_shape_device_ != nullptr) {
         wp_cursor_shape_device_v1_destroy(cursor_shape_device_);
     }
@@ -332,6 +363,9 @@ std::expected<void, std::string> App::init() {
     wl_display_roundtrip(display_); // output and seat properties
     if (compositor_ == nullptr) {
         return std::unexpected("compositor does not provide wl_compositor");
+    }
+    if (seat_ != nullptr) {
+        clipboard_ = std::make_unique<Clipboard>(*this, seat_, data_device_manager_, primary_selection_manager_);
     }
     if (auto result = init_egl(); !result) {
         return result;
@@ -430,6 +464,12 @@ void App::handle_global(wl_registry* registry, uint32_t name, const char* interf
     } else if (iface == wp_cursor_shape_manager_v1_interface.name) {
         cursor_shape_manager_ = bind<wp_cursor_shape_manager_v1>(
             registry, name, &wp_cursor_shape_manager_v1_interface, 1);
+    } else if (iface == wl_data_device_manager_interface.name) {
+        data_device_manager_ = bind<wl_data_device_manager>(registry, name, &wl_data_device_manager_interface,
+                                                            std::min(version, 3U));
+    } else if (iface == zwp_primary_selection_device_manager_v1_interface.name) {
+        primary_selection_manager_ = bind<zwp_primary_selection_device_manager_v1>(
+            registry, name, &zwp_primary_selection_device_manager_v1_interface, 1);
     } else if (iface == wl_seat_interface.name && seat_ == nullptr) {
         seat_ = bind<wl_seat>(registry, name, &wl_seat_interface, std::min(version, 8U));
         wl_seat_add_listener(seat_, &Listeners::seat, this);
@@ -520,6 +560,22 @@ void App::emit_key(uint32_t key, bool pressed) {
         return;
     }
     const xkb_keycode_t code = key + 8;
+    if (pressed && keyboard_window_->on_key) {
+        // A window that takes keys itself (the terminal) sees them first.
+        const xkb_keysym_t sym = xkb_state_key_get_one_sym(xkb_state_, code);
+        auto active = [&](const char* mod) {
+            return xkb_state_mod_name_is_active(xkb_state_, mod, XKB_STATE_MODS_EFFECTIVE) > 0;
+        };
+        const KeyEvent event{.keysym = sym,
+                             .codepoint = xkb_keysym_to_utf32(sym),
+                             .ctrl = active(XKB_MOD_NAME_CTRL),
+                             .shift = active(XKB_MOD_NAME_SHIFT),
+                             .alt = active(XKB_MOD_NAME_ALT),
+                             .super = active(XKB_MOD_NAME_LOGO)};
+        if (keyboard_window_->on_key(event)) {
+            return;
+        }
+    }
     // Identify keys by their unshifted symbol, so Ctrl+Shift+A is still "A".
     const xkb_keysym_t* syms = nullptr;
     const int count = xkb_keymap_key_get_syms_by_level(

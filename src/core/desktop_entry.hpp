@@ -39,7 +39,7 @@ private:
 };
 
 // argv for launching `entry`: field codes removed, quoting resolved, and
-// wrapped in `terminal` (e.g. "foot") if the entry runs in a terminal.
+// wrapped in `terminal` (e.g. "tetra-terminal") if the entry runs in a terminal.
 std::vector<std::string> exec_argv(const DesktopEntry& entry, const std::string& terminal);
 
 // Case-insensitive ASCII comparison, used for app_id matching.

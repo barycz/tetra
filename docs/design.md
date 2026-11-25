@@ -313,7 +313,18 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   `LayerWindow` (bars, panels) and `ToplevelWindow` (apps, asks for
   server-side decorations) set the role.
 - Fonts: fontconfig resolves `theme.font` to a file; ImGui renders it with
-  FreeType. Cursor shapes go through `cursor-shape-v1`.
+  FreeType. Cursor shapes go through `cursor-shape-v1`. `on_load_fonts`
+  lets a window add fonts whenever the atlas is rebuilt.
+- `ui::Clipboard` — text on the clipboard (`wl_data_device`) and the
+  primary selection (`primary-selection-v1`). Another client's selection is
+  read as soon as it is offered, so ImGui's synchronous paste works (Ctrl+C
+  / Ctrl+V in every text field); our own is never read back over a pipe (a
+  window pasting what it copied would wait on itself).
+- `Window::on_key` gets key presses (keysym with modifiers applied, its
+  character, the modifiers) before ImGui, for windows that interpret keys
+  themselves.
+- Scrolling: wheel notches come from `axis_value120` (120 per notch), else
+  the axis value / 15 (touchpads), gathered per pointer frame.
 - Rules learned the hard way (phase 2 bug fixes):
   - Creating or destroying a window must not change the current EGL surface
     (`EglGuard`): windows are created from other windows' draw callbacks
@@ -325,6 +336,35 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   - Hit tests for "click outside closes" use plain rectangles:
     `IsWindowHovered()` is false while an item in the window is active.
   - Never destroy a window from its own draw callback; defer it to a timer.
+
+## Terminal (phase 5)
+
+- `tetra-terminal [--app-id ID] [--title T] [-e] [COMMAND...]`: one
+  process per window; without a command, the user's shell. It accepts the
+  trailing command as `terminal` for Terminal=true apps (like foot).
+- The child runs on a pty (`forkpty`) with `TERM=xterm-256color` and
+  `COLORTERM=truecolor`. libvterm keeps the screen (alternate screen,
+  reflow on resize); lines leaving the top go to our own scrollback (10000
+  lines, trailing blanks dropped), and come back if the window grows.
+  Output to the child is queued and written without blocking, so a large
+  paste cannot deadlock against a child that is itself writing.
+- Drawing: every cell at an exact pixel position (cell width rounded to
+  device pixels), glyph by glyph (`ImFont::RenderChar`) from fontconfig's
+  `monospace` (regular, bold, italic). Box drawing (light, heavy, double,
+  rounded, dashed) and block elements are drawn as rectangles filling the
+  cell, so lines join. Colours: the theme's text and window colours as
+  default foreground/background, 16 colours per dark/light theme, the
+  xterm 256-colour cube and true colour.
+- Input: `Window::on_key` maps keysyms to libvterm keys (or characters
+  with Ctrl/Alt). Ctrl+Shift+C/V copy and paste (bracketed when the program
+  asks), Shift+Insert and middle click paste the primary selection,
+  Shift+PageUp/Down scroll, Ctrl+= / Ctrl+- / Ctrl+0 zoom, Ctrl+Shift+N
+  opens another terminal in the shell's current directory. Selection: drag,
+  double click (word), triple click (line); it becomes the primary
+  selection. Programs that ask for the mouse get it unless Shift is held.
+  The wheel scrolls back, or sends arrow keys on the alternate screen.
+- Not yet: font fallback for characters missing from the monospace font
+  (CJK, emoji), ligatures, input methods/compose keys, tabs, URL opening.
 
 ## Shell services (phase 3)
 
@@ -488,6 +528,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
    memory, sound, taskbar pins, keyboard, mouse & touchpad, lock & power,
    apps & startup, about; not yet tried on a real seat)*
 5. **Apps and portal** — terminal, system monitor, portal backend.
+   *(in progress: terminal; next: system monitor, portal)*
 6. **Final pieces** — greeter, animations, polish.
 
 ## Open questions

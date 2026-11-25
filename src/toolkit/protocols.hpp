@@ -15,6 +15,7 @@
 #include "cursor-shape-v1-protocol.h"
 #include "ext-idle-notify-v1-protocol.h"
 #include "ext-session-lock-v1-protocol.h"
+#include "primary-selection-unstable-v1-protocol.h"
 #include "wlr-layer-shell-unstable-v1-protocol.h"
 #include "wlr-output-management-unstable-v1-protocol.h"
 #include "wlr-output-power-management-unstable-v1-protocol.h"

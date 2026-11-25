@@ -141,7 +141,7 @@ struct Config {
     Taskbar taskbar;
     Idle idle;
     std::string shell = "tetra-shell"; // empty: do not start a shell
-    std::string terminal = "foot";     // for Terminal=true apps and Super+Return
+    std::string terminal = "tetra-terminal"; // for Terminal=true apps and Super+Return
     std::vector<std::string> autostart;
 
     // Settings for the named output: exact match first, then "*".

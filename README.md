@@ -76,7 +76,7 @@ printf '[Desktop Entry]\nName=tetra (dev build)\nExec=%s\nType=Application\n' \
 | Super+Up / Super+Down | maximize / restore or minimize |
 | Alt+Tab | cycle windows (also brings back minimized ones) |
 | Alt+F4 | close window |
-| Super+Return | open a terminal (`terminal` in the config, foot by default) |
+| Super+Return | open a terminal (`terminal` in the config, tetra-terminal by default) |
 | Print | screenshot of the screen: saved to Pictures/Screenshots and copied |
 | Shift+Print, Super+Shift+S | screenshot of an area (drag; Esc cancels) |
 | Alt+Print | screenshot of the focused window |

@@ -25,6 +25,7 @@ find_package(sdbus-c++ 2 REQUIRED)
 
 add_library(tetra_toolkit STATIC
     app.cpp
+    clipboard.cpp
     dbus.cpp
     icons.cpp
     keymap.cpp
@@ -39,6 +40,7 @@ tetra_wayland_protocols(tetra_toolkit CLIENT
     "${WAYLAND_PROTOCOLS_DIR}/staging/ext-idle-notify/ext-idle-notify-v1.xml"
     "${WAYLAND_PROTOCOLS_DIR}/staging/ext-session-lock/ext-session-lock-v1.xml"
     "${WAYLAND_PROTOCOLS_DIR}/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml"
+    "${WAYLAND_PROTOCOLS_DIR}/unstable/primary-selection/primary-selection-unstable-v1.xml"
     "${WLR_PROTOCOLS_DIR}/wlr-layer-shell-unstable-v1.xml"
     "${WLR_PROTOCOLS_DIR}/wlr-output-management-unstable-v1.xml"
     "${WLR_PROTOCOLS_DIR}/wlr-output-power-management-unstable-v1.xml"

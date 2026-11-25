@@ -363,7 +363,7 @@ std::vector<std::string> exec_argv(const DesktopEntry& entry, const std::string&
     if (entry.terminal && !expanded.empty()) {
         std::vector<std::string> wrapped = split(terminal, ' ');
         if (wrapped.empty()) {
-            wrapped.emplace_back("foot");
+            wrapped.emplace_back("tetra-terminal");
         }
         wrapped.insert(wrapped.end(), expanded.begin(), expanded.end());
         return wrapped;

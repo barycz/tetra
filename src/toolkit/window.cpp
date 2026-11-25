@@ -1,6 +1,7 @@
 #include "window.hpp"
 
 #include "app.hpp"
+#include "clipboard.hpp"
 #include "protocols.hpp"
 #include "style.hpp"
 
@@ -100,6 +101,22 @@ Window::Window(App& app) : app_(app), last_frame_(std::chrono::steady_clock::now
     io.BackendPlatformName = "tetra-wayland";
     io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // Ctrl+C / Ctrl+V in text fields go through the Wayland clipboard.
+    ImGuiPlatformIO& platform = ImGui::GetPlatformIO();
+    platform.Platform_ClipboardUserData = &app_;
+    platform.Platform_SetClipboardTextFn = [](ImGuiContext* context, const char* text) {
+        auto* owner = static_cast<App*>(ImGui::GetPlatformIO().Platform_ClipboardUserData);
+        (void)context;
+        if (Clipboard* clipboard = owner->clipboard()) {
+            clipboard->set(Clipboard::Selection::Clipboard, text, owner->input_serial());
+        }
+    };
+    platform.Platform_GetClipboardTextFn = [](ImGuiContext* context) -> const char* {
+        auto* owner = static_cast<App*>(ImGui::GetPlatformIO().Platform_ClipboardUserData);
+        (void)context;
+        Clipboard* clipboard = owner->clipboard();
+        return clipboard != nullptr ? clipboard->text(Clipboard::Selection::Clipboard).c_str() : "";
+    };
 
     make_current();
     ImGui_ImplOpenGL3_Init("#version 300 es");
@@ -149,6 +166,9 @@ void Window::apply_theme() {
     }
     if (font == nullptr) {
         io.Fonts->AddFontDefault();
+    }
+    if (on_load_fonts) {
+        on_load_fonts();
     }
     // Rebuilding the atlas resyncs FontSizeBase from ImGui's internal state;
     // this is how ImGui itself applies a size change on the next frame.

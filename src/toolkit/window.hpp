@@ -20,6 +20,7 @@ struct zxdg_toplevel_decoration_v1;
 namespace tetra::ui {
 
 class App;
+struct KeyEvent;
 
 // A Wayland surface with its own EGL surface and ImGui context. Renders only
 // when something changed: input, a resize, or request_redraw().
@@ -34,6 +35,12 @@ public:
 
     // Called inside an ImGui frame; draw the whole window content.
     std::function<void()> on_draw;
+    // Key presses before ImGui sees them; return true to keep a key from
+    // ImGui. For windows that interpret keys themselves (the terminal).
+    std::function<bool(const KeyEvent&)> on_key;
+    // Called (with this window's ImGui context current) whenever the font
+    // atlas is rebuilt, after the UI font: add more fonts here.
+    std::function<void()> on_load_fonts;
 
     // Render at least `frames` more frames (ImGui needs a couple to settle).
     void request_redraw(int frames = 2);

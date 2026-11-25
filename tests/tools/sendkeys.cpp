@@ -11,6 +11,10 @@
 //
 // holds each chord down for that many seconds (run it in the background,
 // e.g. to keep Shift down while tetra-pointer drags).
+//
+//   tetra-sendkeys --type 'echo "Hi"'
+//
+// types text (characters of the US layout; Shift where needed).
 
 #include "virtual-keyboard-unstable-v1-protocol.h"
 
@@ -21,6 +25,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
+#include <utility>
 #include <print>
 #include <span>
 #include <string>
@@ -72,6 +78,22 @@ uint32_t keycode_for(xkb_keymap* keymap, xkb_keysym_t sym) {
     return 0;
 }
 
+// Evdev keycode and shift level (0 or 1) producing `sym`, if any.
+std::optional<std::pair<uint32_t, int>> key_for(xkb_keymap* keymap, xkb_keysym_t sym) {
+    for (int level = 0; level < 2; ++level) {
+        for (xkb_keycode_t code = xkb_keymap_min_keycode(keymap); code <= xkb_keymap_max_keycode(keymap); ++code) {
+            const xkb_keysym_t* syms = nullptr;
+            const int count = xkb_keymap_key_get_syms_by_level(keymap, code, 0, static_cast<xkb_level_index_t>(level), &syms);
+            for (const xkb_keysym_t s : std::span(syms, static_cast<std::size_t>(std::max(count, 0)))) {
+                if (s == sym) {
+                    return std::pair{code - 8, level};
+                }
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 struct Modifier {
     const char* name;
     xkb_keysym_t key;
@@ -89,12 +111,18 @@ constexpr Modifier kModifiers[] = {
 int main(int argc, char* argv[]) {
     auto chords = std::span(argv, static_cast<std::size_t>(argc)).subspan(1);
     double hold_seconds = 0;
+    const char* type_text = nullptr;
+    if (chords.size() == 2 && std::string_view(chords[0]) == "--type") {
+        type_text = chords[1];
+        chords = chords.subspan(2);
+    }
     if (chords.size() >= 2 && std::string_view(chords[0]) == "--hold") {
         hold_seconds = std::atof(chords[1]);
         chords = chords.subspan(2);
     }
-    if (chords.empty()) {
-        std::println(stderr, "usage: tetra-sendkeys [--hold SECONDS] CHORD...   e.g. super+F1 super+shift+Return super");
+    if (chords.empty() && type_text == nullptr) {
+        std::println(stderr, "usage: tetra-sendkeys [--hold SECONDS] CHORD...   e.g. super+F1 super+shift+Return super\n"
+                             "       tetra-sendkeys --type TEXT");
         return 2;
     }
 
@@ -137,6 +165,32 @@ int main(int argc, char* argv[]) {
     };
 
     int status = 0;
+    if (type_text != nullptr) {
+        const uint32_t shift = keycode_for(keymap, XKB_KEY_Shift_L);
+        const uint32_t shift_mask = 1U << xkb_keymap_mod_get_index(keymap, XKB_MOD_NAME_SHIFT);
+        for (const char* p = type_text; *p != '\0'; ++p) {
+            const auto c = static_cast<unsigned char>(*p);
+            const xkb_keysym_t sym = c == '\n' ? XKB_KEY_Return : xkb_utf32_to_keysym(c);
+            const auto key = key_for(keymap, sym);
+            if (!key) {
+                std::println(stderr, "tetra-sendkeys: cannot type '{}'", *p);
+                status = 2;
+                continue;
+            }
+            if (key->second == 1) {
+                send_key(shift, true);
+                zwp_virtual_keyboard_v1_modifiers(keyboard, shift_mask, 0, 0, 0);
+            }
+            send_key(key->first, true);
+            send_key(key->first, false);
+            if (key->second == 1) {
+                send_key(shift, false);
+                zwp_virtual_keyboard_v1_modifiers(keyboard, 0, 0, 0, 0);
+            }
+            wl_display_roundtrip(display);
+            std::this_thread::sleep_for(std::chrono::milliseconds(15));
+        }
+    }
     for (const std::string_view chord : chords) {
         std::vector<const Modifier*> mods;
         xkb_keysym_t key = XKB_KEY_NoSymbol;

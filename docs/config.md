@@ -68,7 +68,7 @@ the error is logged by each component.
 
   "taskbar": {
     // Desktop file IDs (or app_ids) for slots F1, F2, ... — at most 11.
-    "pinned": ["foot", "firefox-esr", "org.gnome.Nautilus"]
+    "pinned": ["tetra-terminal", "firefox-esr", "org.gnome.Nautilus"]
   },
 
   "idle": {
@@ -77,7 +77,7 @@ the error is logged by each component.
     "lock_before_sleep": true
   },
 
-  "terminal": "foot",             // Super+Return and Terminal=true apps
+  "terminal": "tetra-terminal",   // Super+Return and Terminal=true apps
   "shell": "tetra-shell",         // "" to run without a shell
   "autostart": ["nm-applet", "foot --server"]
 }
@@ -150,7 +150,7 @@ Built-in layouts: `none`, `columns-2`, `columns-3`, `priority` (wide middle),
 | `idle.lock_after` | integer, seconds, 0–86400 (0: never) | `300` | yes |
 | `idle.screen_off_after` | integer, seconds, 0–86400 (0: never) | `600` | yes |
 | `idle.lock_before_sleep` | bool | `true` | yes |
-| `terminal` | command | `"foot"` | yes |
+| `terminal` | command | `"tetra-terminal"` | yes |
 | `shell` | command | `"tetra-shell"` | restarts the shell |
 | `autostart` | array of commands | `[]` | at startup only |
 

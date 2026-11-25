@@ -9,6 +9,7 @@
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <expected>
@@ -23,10 +24,26 @@ struct wp_cursor_shape_manager_v1;
 struct xdg_wm_base;
 struct zwlr_layer_shell_v1;
 struct zxdg_decoration_manager_v1;
+struct zwp_primary_selection_device_manager_v1;
 
 namespace tetra::ui {
 
+class Clipboard;
 class Window;
+
+// The font file fontconfig picks for a pattern ("Inter", "monospace:bold");
+// empty if none.
+std::string find_font(const std::string& pattern);
+
+// A key press as a terminal needs it (Window::on_key).
+struct KeyEvent {
+    uint32_t keysym = 0;    // with the modifiers applied (Shift+a: A)
+    uint32_t codepoint = 0; // the character keysym types, 0 if none
+    bool ctrl = false;
+    bool shift = false;
+    bool alt = false;
+    bool super = false;
+};
 
 struct OutputInfo {
     uint32_t global = 0;
@@ -76,6 +93,12 @@ public:
     // that existed before run()), and when it goes away.
     std::function<void(const OutputInfo&)> on_output_added;
     std::function<void(const OutputInfo&)> on_output_removed;
+
+    // --- clipboard -------------------------------------------------------------------
+    // Null before init() or without a seat.
+    [[nodiscard]] Clipboard* clipboard() const noexcept { return clipboard_.get(); }
+    // The serial of the latest key press or button press (to set a selection).
+    [[nodiscard]] uint32_t input_serial() const noexcept { return input_serial_; }
 
     // --- configuration ------------------------------------------------------------
     [[nodiscard]] const config::Config& config() const noexcept { return config_; }
@@ -132,6 +155,10 @@ private:
     [[nodiscard]] Window* window_for(wl_surface* surface) const;
 
     std::string app_id_;
+    std::unique_ptr<Clipboard> clipboard_;
+    wl_data_device_manager* data_device_manager_ = nullptr;
+    zwp_primary_selection_device_manager_v1* primary_selection_manager_ = nullptr;
+    uint32_t input_serial_ = 0;
     bool running_ = true;
     int exit_code_ = 0;
     bool started_ = false;
@@ -168,6 +195,8 @@ private:
     // pointer
     Window* pointer_window_ = nullptr;
     uint32_t pointer_serial_ = 0;
+    std::array<double, 2> axis_value_{};    // horizontal, vertical; this frame
+    std::array<double, 2> axis_value120_{};
     int cursor_ = -2; // ImGuiMouseCursor; -2 = not set yet
 
     // keyboard

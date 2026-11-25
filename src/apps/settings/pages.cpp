@@ -61,9 +61,10 @@ constexpr std::array kLockTimes = {
     Duration{1800, "30 minutes"}, Duration{3600, "1 hour"},
 };
 
-constexpr std::array kTerminals = {"foot",           "kitty",        "alacritty",
-                                   "wezterm",        "gnome-terminal", "kgx",
-                                   "konsole",        "xfce4-terminal", "xterm"};
+constexpr std::array kTerminals = {"tetra-terminal", "foot",           "kitty",
+                                   "alacritty",      "wezterm",        "gnome-terminal",
+                                   "kgx",            "konsole",        "xfce4-terminal",
+                                   "xterm"};
 
 std::string duration_label(int seconds) {
     for (const auto& d : kLockTimes) {
@@ -651,8 +652,8 @@ void Settings::page_apps() {
         }
         ImGui::EndCombo();
     }
-    row("Terminal command", "Any command line, e.g. \"foot -o font=Mono:size=12\"; Enter applies it.");
-    if (text_field("##terminal-command", "foot", terminal_buffer_, c.terminal) && terminal_buffer_[0] != '\0') {
+    row("Terminal command", "Any command line, e.g. \"tetra-terminal --title Shell\"; Enter applies it.");
+    if (text_field("##terminal-command", "tetra-terminal", terminal_buffer_, c.terminal) && terminal_buffer_[0] != '\0') {
         save([v = std::string(terminal_buffer_.data())](config::Document& d) { return d.set({"terminal"}, v); });
     }
     end_card();
