@@ -13,6 +13,7 @@ constexpr const char* kScreenshot = "org.freedesktop.impl.portal.Screenshot";
 constexpr const char* kFileChooser = "org.freedesktop.impl.portal.FileChooser";
 constexpr const char* kRequest = "org.freedesktop.impl.portal.Request";
 constexpr const char* kAccess = "org.freedesktop.impl.portal.Access";
+constexpr const char* kScreenCast = "org.freedesktop.impl.portal.ScreenCast";
 constexpr const char* kNotFound = "org.freedesktop.portal.Error.NotFound";
 constexpr const char* kAppearance = "org.freedesktop.appearance";
 constexpr const char* kGnome = "org.gnome.desktop.interface";
@@ -78,6 +79,13 @@ sdbus::Variant choices_variant(const std::vector<Choice>& choices) {
     return sdbus::Variant(out);
 }
 
+// "wayland:HANDLE" -> HANDLE (an xdg-foreign v2 handle); X11 parents and
+// none -> "".
+std::string wayland_parent(const std::string& parent_window) {
+    constexpr std::string_view kPrefix = "wayland:";
+    return parent_window.starts_with(kPrefix) ? parent_window.substr(kPrefix.size()) : std::string();
+}
+
 // "org.freedesktop.*" matches by prefix; no namespaces, or "", all of them.
 bool wanted(const std::string& ns, const std::vector<std::string>& patterns) {
     if (patterns.empty()) {
@@ -137,17 +145,16 @@ Portal::Portal(ui::App& app, sdbus::IConnection& bus) : app_(app), bus_(bus) {
             sdbus::registerMethod("PickColor")
                 .withInputParamNames("handle", "app_id", "parent_window", "options")
                 .withOutputParamNames("response", "results")
-                .implementedAs([](const sdbus::ObjectPath& /*handle*/, const std::string& /*app_id*/,
-                                  const std::string& /*parent*/, const Options& /*options*/) {
-                    return std::tuple<uint32_t, Options>{kOther, {}}; // not yet
-                }),
+                .implementedAs([this](Response&& reply, const sdbus::ObjectPath& handle,
+                                      const std::string& /*app_id*/, const std::string& /*parent*/,
+                                      const Options& /*options*/) { pick_color(std::move(reply), handle); }),
             sdbus::registerProperty("version").withGetter([] { return uint32_t{2}; }))
         .forInterface(sdbus::InterfaceName{kScreenshot});
 
     const auto chooser = [this](DialogOptions::Mode mode) {
         return [this, mode](Response&& reply, const sdbus::ObjectPath& handle, const std::string& /*app_id*/,
-                            const std::string& /*parent*/, const std::string& title, const Options& options) {
-            open_dialog(std::move(reply), handle, title, options, mode);
+                            const std::string& parent, const std::string& title, const Options& options) {
+            open_dialog(std::move(reply), handle, title, wayland_parent(parent), options, mode);
         };
     };
     object_
@@ -172,7 +179,7 @@ Portal::Portal(ui::App& app, sdbus::IConnection& bus) : app_(app), bus_(bus) {
                                              "options")
                         .withOutputParamNames("response", "results")
                         .implementedAs([this](Response&& reply, const sdbus::ObjectPath& handle,
-                                              const std::string& /*app_id*/, const std::string& /*parent*/,
+                                              const std::string& /*app_id*/, const std::string& parent,
                                               std::string title, std::string subtitle, std::string body,
                                               const Options& options) {
                             access_dialog(std::move(reply), handle,
@@ -182,15 +189,59 @@ Portal::Portal(ui::App& app, sdbus::IConnection& bus) : app_(app), bus_(bus) {
                                                         .icon = {},
                                                         .grant_label = {},
                                                         .deny_label = {},
-                                                        .choices = {}},
+                                                        .choices = {},
+                                                        .parent = wayland_parent(parent)},
                                           options);
                         }))
         .forInterface(sdbus::InterfaceName{kAccess});
+
+    screencast_ = std::make_unique<ScreenCast>(app_, bus_);
+    object_
+        ->addVTable(
+            sdbus::registerMethod("CreateSession")
+                .withInputParamNames("handle", "session_handle", "app_id", "options")
+                .withOutputParamNames("response", "results")
+                .implementedAs([this](const sdbus::ObjectPath& /*handle*/, const sdbus::ObjectPath& session,
+                                      const std::string& app_id, const Options& /*options*/) {
+                    screencast_->create_session(session, app_id);
+                    return std::tuple<uint32_t, Options>{
+                        kSuccess, Options{{"session_id", sdbus::Variant(std::string(session))}}};
+                }),
+            sdbus::registerMethod("SelectSources")
+                .withInputParamNames("handle", "session_handle", "app_id", "options")
+                .withOutputParamNames("response", "results")
+                .implementedAs([this](const sdbus::ObjectPath& /*handle*/, const sdbus::ObjectPath& session,
+                                      const std::string& /*app_id*/, const Options& options) {
+                    const bool ok = screencast_->select_sources(session, options);
+                    return std::tuple<uint32_t, Options>{ok ? kSuccess : kOther, Options{}};
+                }),
+            sdbus::registerMethod("Start")
+                .withInputParamNames("handle", "session_handle", "app_id", "parent_window", "options")
+                .withOutputParamNames("response", "results")
+                .implementedAs([this](Response&& reply, const sdbus::ObjectPath& handle,
+                                      const sdbus::ObjectPath& session, const std::string& /*app_id*/,
+                                      const std::string& parent, const Options& /*options*/) {
+                    add_request(handle, std::move(reply));
+                    const std::string key = handle;
+                    const std::string session_key = session;
+                    requests_.at(key)->on_close = [this, session_key] { screencast_->cancel_start(session_key); };
+                    screencast_->start(session_key, wayland_parent(parent),
+                                       [this, key](uint32_t response, Options results) {
+                                           answer(key, response, std::move(results));
+                                       });
+                }),
+            sdbus::registerProperty("AvailableSourceTypes").withGetter([] { return ScreenCast::kMonitor; }),
+            sdbus::registerProperty("AvailableCursorModes").withGetter([] {
+                return ScreenCast::kCursorHidden | ScreenCast::kCursorEmbedded;
+            }),
+            sdbus::registerProperty("version").withGetter([] { return uint32_t{5}; }))
+        .forInterface(sdbus::InterfaceName{kScreenCast});
 
     app_.on_config_changed = [this] { config_changed(); };
 }
 
 Portal::~Portal() {
+    screencast_.reset(); // its streams and sessions, while the bus is there
     // Unanswered calls end as "other" (2): the backend is going away.
     for (auto& [handle, request] : requests_) {
         if (!request->answered) {
@@ -221,6 +272,9 @@ void Portal::add_request(const sdbus::ObjectPath& handle, Response&& reply) {
             if (it != requests_.end() && it->second->access) {
                 it->second->access->cancel();
             }
+            if (it != requests_.end() && it->second->on_close) {
+                it->second->on_close();
+            }
             answer(key, kOther);
         }))
         .forInterface(sdbus::InterfaceName{kRequest});
@@ -241,11 +295,12 @@ void Portal::answer(const std::string& handle, uint32_t response, Options result
 // --- FileChooser --------------------------------------------------------------------------------
 
 void Portal::open_dialog(Response&& reply, const sdbus::ObjectPath& handle, const std::string& title,
-                         const Options& options, DialogOptions::Mode mode) {
+                         const std::string& parent, const Options& options, DialogOptions::Mode mode) {
     add_request(handle, std::move(reply));
     DialogOptions o;
     o.mode = mode;
     o.title = title;
+    o.parent = parent;
     o.accept_label = option<std::string>(options, "accept_label").value_or("");
     o.multiple = option<bool>(options, "multiple").value_or(false);
     o.directory = option<bool>(options, "directory").value_or(false);
@@ -352,6 +407,30 @@ void Portal::screenshot(Response&& reply, const sdbus::ObjectPath& handle, const
             });
     } catch (const sdbus::Error& e) {
         std::println(stderr, "tetra-portal: screenshot: {}", e.getMessage());
+        answer(key, kOther);
+    }
+}
+
+void Portal::pick_color(Response&& reply, const sdbus::ObjectPath& handle) {
+    add_request(handle, std::move(reply));
+    const std::string key = handle;
+    try {
+        shell_->callMethodAsync("PickColor")
+            .onInterface(sdbus::InterfaceName{"org.tetra.Shell1"})
+            .withTimeout(std::chrono::minutes(10))
+            .uponReplyInvoke([this, key](std::optional<sdbus::Error> error, sdbus::Struct<double, double, double> c) {
+                if (error) {
+                    const bool cancelled = error->getName() == "org.tetra.Shell1.Error.Cancelled";
+                    if (!cancelled) {
+                        std::println(stderr, "tetra-portal: pick colour: {}", error->getMessage());
+                    }
+                    answer(key, cancelled ? kCancelled : kOther);
+                    return;
+                }
+                answer(key, kSuccess, Options{{"color", sdbus::Variant(c)}});
+            });
+    } catch (const sdbus::Error& e) {
+        std::println(stderr, "tetra-portal: pick colour: {}", e.getMessage());
         answer(key, kOther);
     }
 }

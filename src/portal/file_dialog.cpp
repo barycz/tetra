@@ -98,7 +98,8 @@ FileDialog::FileDialog(ui::App& app, const MimeGlobs& mime, DialogOptions option
     }
     window_ = std::make_unique<ui::ToplevelWindow>(app_, ui::ToplevelWindow::Options{.title = title,
                                                                                      .width = 860,
-                                                                                     .height = 560});
+                                                                                     .height = 560,
+                                                                                     .parent = options_.parent});
     window_->on_draw = [this] { draw(); };
     window_->on_close = [this] { finish(false, {}); };
     window_->on_key = [this](const ui::KeyEvent& key) { return handle_key(key); };

@@ -4,6 +4,7 @@
 
 #include "app.hpp"
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -51,6 +52,11 @@ public:
     // failed. It is not put on the clipboard.
     using Done = std::function<void(std::optional<std::filesystem::path>)>;
     void request(bool interactive, Done done);
+    // For the portal's PickColor: the user clicks a pixel of the output under
+    // the pointer (frozen, with a magnifier); `done` gets its colour as
+    // R, G, B in 0..1, or nothing if cancelled.
+    using ColorDone = std::function<void(std::optional<std::array<double, 3>>)>;
+    void pick_color(ColorDone done);
 
     // Where screenshots go: $XDG_PICTURES_DIR (or user-dirs.dirs, or
     // ~/Pictures) + /Screenshots.
@@ -89,8 +95,9 @@ private:
         uint32_t serial = 0;
         uint32_t mode = 0;
         wl_output* output = nullptr;
-        Rect box;  // logical, relative to the output
-        Done done; // a portal request
+        Rect box;        // logical, relative to the output
+        Done done;       // a portal request
+        ColorDone color; // a portal colour request
     };
     class RegionPicker;
 
@@ -114,6 +121,7 @@ private:
     std::unique_ptr<RegionPicker> picker_;
     // A portal request waiting for the compositor's screenshot event.
     Done pending_;
+    ColorDone color_pending_;
     std::optional<ui::App::TimerId> pending_timer_;
 };
 

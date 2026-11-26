@@ -811,4 +811,14 @@ int App::run() {
     return exit_code_;
 }
 
+std::vector<const OutputInfo*> App::outputs() const {
+    std::vector<const OutputInfo*> out;
+    for (const auto& output : outputs_) {
+        if (output->info.done) {
+            out.push_back(&output->info);
+        }
+    }
+    return out;
+}
+
 } // namespace tetra::ui

@@ -33,6 +33,7 @@ protected:
     void send_fullscreen(bool fullscreen) override;
     [[nodiscard]] wlr_box surface_geometry() const override;
     [[nodiscard]] bool is_main_window() const override { return toplevel_->parent == nullptr; }
+    [[nodiscard]] View* parent_view() const override;
 
 private:
     void apply_decoration_mode();
@@ -50,6 +51,7 @@ private:
     Listener request_maximize_;
     Listener request_fullscreen_;
     Listener request_minimize_;
+    Listener set_parent_;
     Listener set_title_;
     Listener set_app_id_;
     Listener decoration_destroy_;

@@ -6,16 +6,26 @@ portal's response code (0 success, 1 cancelled, 2 other).
   portal-request read NAMESPACE KEY        Settings.ReadOne; prints the value
   portal-request watch NAMESPACE KEY SECS  waits for Settings.SettingChanged
   portal-request screenshot [--interactive]
+  portal-request pick                      Screenshot.PickColor
+  Every command but read/watch takes --parent WINDOW ("wayland:HANDLE").
   portal-request open [--folder DIR] [--multiple] [--directory]
                       [--filter "NAME:GLOB;GLOB"]... [--title T]
   portal-request save [--folder DIR] [--name NAME] [--filter ...]
+  portal-request screencast --out PNG [--cursor] [--hold SECS]
+                      ScreenCast: session, a display, Start (the share
+                      dialog), then one frame of the stream as a PNG
+                      (GStreamer's pipewiresrc); the session stays open
+                      for SECS more seconds
 
 Results print as "response N" and then "key: value" lines.
 """
 
 import argparse
 import secrets
+import struct
+import subprocess
 import sys
+import time
 
 from gi.repository import Gio, GLib
 
@@ -28,8 +38,10 @@ def call(bus, interface, method, args, reply_type, timeout_ms=10000):
                          Gio.DBusCallFlags.NONE, timeout_ms, None)
 
 
-def request(bus, interface, method, args_before_options, options):
-    """A call answered by a Request's Response signal."""
+def request(bus, interface, method, args_before_options, options, quiet=False):
+    """A call answered by a Request's Response signal. Prints the outcome
+    (unless quiet) and returns the response code, or (code, results) when
+    quiet."""
     token = "tetra" + secrets.token_hex(4)
     sender = bus.get_unique_name()[1:].replace(".", "_")
     handle = f"{PATH}/request/{sender}/{token}"
@@ -50,12 +62,56 @@ def request(bus, interface, method, args_before_options, options):
     GLib.timeout_add_seconds(300, loop.quit)
     loop.run()
     if "response" not in outcome:
+        if quiet:
+            return 3, {}
         print("no response")
         return 3
+    if quiet:
+        return outcome["response"], outcome["results"]
     print(f"response {outcome['response']}")
     for key, value in sorted(outcome["results"].items()):
         print(f"{key}: {value}")
     return outcome["response"]
+
+
+def screencast(bus, out, cursor, hold):
+    iface = "org.freedesktop.portal.ScreenCast"
+    token = "tetra" + secrets.token_hex(4)
+    code, results = request(bus, iface, "CreateSession", [],
+                            {"session_handle_token": GLib.Variant("s", token)}, quiet=True)
+    if code != 0:
+        print(f"create session: response {code}")
+        return code
+    session = results["session_handle"]
+    code, _ = request(bus, iface, "SelectSources", [("o", session)],
+                      {"types": GLib.Variant("u", 1), "cursor_mode": GLib.Variant("u", 2 if cursor else 1)},
+                      quiet=True)
+    if code != 0:
+        print(f"select sources: response {code}")
+        return code
+    code, results = request(bus, iface, "Start", [("o", session), ("s", "")], {}, quiet=True)
+    print(f"response {code}")
+    if code != 0:
+        return code
+    node, props = results["streams"][0]
+    print(f"streams: node {node} {props}")
+    reply, fds = bus.call_with_unix_fd_list_sync(
+        DEST, PATH, iface, "OpenPipeWireRemote", GLib.Variant("(oa{sv})", (session, {})),
+        GLib.VariantType("(h)"), Gio.DBusCallFlags.NONE, 10000, None, None)
+    fd = fds.get(reply.unpack()[0])
+    pipeline = ["gst-launch-1.0", "-q", "pipewiresrc", f"fd={fd}", f"path={node}", "num-buffers=1", "!",
+                "videoconvert", "!", "pngenc", "!", "filesink", f"location={out}"]
+    try:
+        subprocess.run(pipeline, pass_fds=[fd], timeout=20, check=True, stdout=subprocess.DEVNULL)
+        with open(out, "rb") as png:
+            width, height = struct.unpack(">II", png.read(24)[16:24])
+        print(f"frame: {width}x{height}")
+    except (subprocess.SubprocessError, OSError) as error:
+        print(f"no frame: {error}")
+        return 2
+    sys.stdout.flush()
+    time.sleep(hold)
+    return 0
 
 
 def filters(specs):
@@ -82,11 +138,18 @@ def main():
     watch.add_argument("seconds", type=float)
     shot = sub.add_parser("screenshot")
     shot.add_argument("--interactive", action="store_true")
+    shot.add_argument("--parent", default="")
+    sub.add_parser("pick").add_argument("--parent", default="")
+    cast = sub.add_parser("screencast")
+    cast.add_argument("--out", required=True)
+    cast.add_argument("--cursor", action="store_true")
+    cast.add_argument("--hold", type=float, default=0)
     for name in ("open", "save"):
         p = sub.add_parser(name)
         p.add_argument("--folder")
         p.add_argument("--title", default="")
         p.add_argument("--filter", action="append", default=[])
+        p.add_argument("--parent", default="")
         if name == "open":
             p.add_argument("--multiple", action="store_true")
             p.add_argument("--directory", action="store_true")
@@ -124,8 +187,13 @@ def main():
         print(f"changed: {seen['value']}")
         return 0
     if args.command == "screenshot":
-        return request(bus, "org.freedesktop.portal.Screenshot", "Screenshot", [("s", "")],
+        return request(bus, "org.freedesktop.portal.Screenshot", "Screenshot", [("s", args.parent)],
                        {"interactive": GLib.Variant("b", args.interactive)})
+
+    if args.command == "screencast":
+        return screencast(bus, args.out, args.cursor, args.hold)
+    if args.command == "pick":
+        return request(bus, "org.freedesktop.portal.Screenshot", "PickColor", [("s", args.parent)], {})
 
     options = {}
     if args.folder:
@@ -136,11 +204,11 @@ def main():
         options["multiple"] = GLib.Variant("b", args.multiple)
         options["directory"] = GLib.Variant("b", args.directory)
         return request(bus, "org.freedesktop.portal.FileChooser", "OpenFile",
-                       [("s", ""), ("s", args.title)], options)
+                       [("s", args.parent), ("s", args.title)], options)
     if args.name:
         options["current_name"] = GLib.Variant("s", args.name)
     return request(bus, "org.freedesktop.portal.FileChooser", "SaveFile",
-                   [("s", ""), ("s", args.title)], options)
+                   [("s", args.parent), ("s", args.title)], options)
 
 
 if __name__ == "__main__":

@@ -54,6 +54,8 @@ public:
 
     void set_activated(bool activated);
     void raise();
+    // The window this one belongs to (a dialog's app window), if any.
+    [[nodiscard]] virtual View* parent_view() const { return nullptr; }
     void move_to(int x, int y);
     void set_maximized(bool maximized);
     void toggle_maximized() { set_maximized(state_ != State::Maximized); }

@@ -21,6 +21,7 @@
 #include "wlr-output-power-management-unstable-v1-protocol.h"
 #include "wlr-screencopy-unstable-v1-protocol.h"
 #include "xdg-decoration-unstable-v1-protocol.h"
+#include "xdg-foreign-unstable-v2-protocol.h"
 #include "xdg-shell-protocol.h"
 
 #undef namespace

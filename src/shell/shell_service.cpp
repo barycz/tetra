@@ -46,6 +46,26 @@ ShellService::ShellService(Shell& shell, sdbus::IConnection& connection)
                                             "No screenshot"));
                                     }
                                 });
+                        }),
+                    sdbus::registerMethod("PickColor")
+                        .withOutputParamNames("color")
+                        .implementedAs([this](sdbus::Result<sdbus::Struct<double, double, double>>&& result) {
+                            if (!caller_is_portal()) {
+                                result.returnError(sdbus::Error(sdbus::Error::Name{kDenied},
+                                                                "Only the tetra portal may ask for this"));
+                                return;
+                            }
+                            auto shared = std::make_shared<sdbus::Result<sdbus::Struct<double, double, double>>>(
+                                std::move(result));
+                            shell_.screenshots().pick_color([shared](std::optional<std::array<double, 3>> c) {
+                                if (c) {
+                                    shared->returnResults(sdbus::Struct<double, double, double>{(*c)[0], (*c)[1],
+                                                                                                (*c)[2]});
+                                } else {
+                                    shared->returnError(
+                                        sdbus::Error(sdbus::Error::Name{kCancelled}, "No colour picked"));
+                                }
+                            });
                         }))
         .forInterface(sdbus::InterfaceName{kInterface});
     connection_.requestName(sdbus::ServiceName{kName});

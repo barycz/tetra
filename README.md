@@ -63,8 +63,8 @@ printf '[Desktop Entry]\nName=tetra (dev build)\nExec=%s\nType=Application\n' \
   "$PWD/build/debug/src/compositor/tetra" | sudo tee /usr/share/wayland-sessions/tetra-dev.desktop
 ```
 
-**Portal backend** (GTK/Qt/Firefox use tetra's file dialog, screenshots
-and dark/light setting). `sudo cmake --install build/release` installs it
+**Portal backend** (GTK/Qt/Firefox use tetra's file dialog, screenshots,
+colour picker, screen sharing and dark/light setting). `sudo cmake --install build/release` installs it
 with everything else. To use it from a dev build instead (the `.portal` file
 must be in the system directory):
 
@@ -117,14 +117,15 @@ src/toolkit/      ImGui-on-Wayland toolkit for the shell and apps (incl. icons)
 src/shell/        tetra-shell: bar, launcher, tray (incl. app icons), notifications, volume/OSD,
                   lock screen, idle, polkit agent, screenshots
 src/apps/         apps: settings (tetra-settings), terminal (tetra-terminal), system monitor (tetra-monitor)
-src/portal/       tetra-portal: xdg-desktop-portal backend (settings, screenshots, file chooser)
+src/portal/       tetra-portal: xdg-desktop-portal backend (settings, screenshots, file chooser,
+                  screen sharing)
 data/             files installed alongside (PAM service, desktop entries)
 tests/unit/       unit tests (config editing)
 protocols/        tetra's private Wayland protocol (compositor <-> shell)
 scripts/          deps, vendored build, headless runner, test runner
 tests/headless/   scripted headless scenarios
 tests/tools/      tetra-sendkeys, tetra-pointer, tetra-tray-item, polkit-request, fake-polkit-helper,
-                  portal-request
+                  portal-request, tetra-foreign-parent
 patches/          local patches to vendored dependencies
 third_party/      pinned submodules (wlroots, wayland, imgui, ...)
 docs/             design notes, configuration reference

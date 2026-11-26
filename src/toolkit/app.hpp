@@ -93,6 +93,8 @@ public:
     // that existed before run()), and when it goes away.
     std::function<void(const OutputInfo&)> on_output_added;
     std::function<void(const OutputInfo&)> on_output_removed;
+    // The outputs whose properties are known.
+    [[nodiscard]] std::vector<const OutputInfo*> outputs() const;
 
     // --- clipboard -------------------------------------------------------------------
     // Null before init() or without a seat.

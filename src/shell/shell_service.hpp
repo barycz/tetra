@@ -15,6 +15,8 @@ class Shell;
 //     The picture Print (interactive: Shift+Print, the region picker)
 //     would take, saved under Pictures/Screenshots. Errors:
 //     org.tetra.Shell1.Error.Cancelled, org.tetra.Shell1.Error.Failed.
+//   PickColor() -> ((ddd) color)
+//     The user clicks a pixel of the frozen output under the pointer.
 //
 // Only the owner of org.freedesktop.impl.portal.desktop.tetra may call it:
 // apps go through xdg-desktop-portal, which asks the user when needed.

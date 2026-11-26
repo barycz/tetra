@@ -94,6 +94,9 @@ public:
 
     // --- windows & focus (wm.cpp) --------------------------------------------
     void focus_view(View* view);
+    // Raises the windows whose parent is `parent` (and theirs) above it.
+    void raise_children(View* parent);
+    [[nodiscard]] const std::vector<std::unique_ptr<View>>& views() const noexcept { return views_; }
     void focus_next_view();
     void set_keyboard_focus(wlr_surface* surface);
     void restore_keyboard_focus();

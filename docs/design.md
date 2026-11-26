@@ -115,7 +115,7 @@ compositor (tetra)  wlroots, window management, decorations, input, outputs
    │  private Wayland protocol (toplevel list, F-key slots, OSD, shell commands)
 shell               layer-shell client: task bar, launcher, tray, notifications, OSD, lock screen
 apps/               settings, terminal, system monitor
-portal              xdg-desktop-portal backend (settings, screenshot, file chooser, access)
+portal              xdg-desktop-portal backend (settings, screenshot, file chooser, access, screencast)
 libtoolkit          Wayland client platform + ImGui + theme + shared widgets + event loop
 libcore             config, D-Bus (sdbus-c++), logging, .desktop / MIME / icon lookup
 ```
@@ -341,7 +341,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
 
 - `tetra-portal` (libexec) is `org.freedesktop.impl.portal.desktop.tetra`,
   started by D-Bus activation when xdg-desktop-portal needs it. tetra.portal
-  lists Access, FileChooser, Screenshot and Settings; tetra-portals.conf
+  lists Access, FileChooser, ScreenCast, Screenshot and Settings; tetra-portals.conf
   (for `XDG_CURRENT_DESKTOP=tetra`) prefers tetra, then GTK for the rest
   (app chooser, printing, ...). It is a toolkit App: dialogs are its windows.
 - **Settings** (version 2): `org.freedesktop.appearance` color-scheme,
@@ -357,7 +357,10 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   region picker). The picture is saved under Pictures/Screenshots like any
   other (not put on the clipboard; the notification says it was for an
   app) and the app gets its file:// URI. Cancelled picker: response 1.
-  PickColor answers 2 (not yet).
+  PickColor (`org.tetra.Shell1.PickColor`) freezes the output under the
+  pointer the same way, undimmed, with a magnifier (11 x 11 pixels) and the
+  colour's hex value following the pointer; a click returns the pixel's
+  colour, Esc cancels.
 - **Access**: xdg-desktop-portal offers Screenshot only with an Access
   backend, and uses it to ask before an app may take screenshots without
   the user picking them. `access_dialog.cpp`: a small window with the
@@ -374,12 +377,32 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   "Replace?". Results: `uris`, `choices`, `current_filter`. A Request's
   Close cancels the dialog. The next dialog starts where the last one ended
   unless the app says where.
-- Parent windows (`parent_window`) are not used yet: the dialogs are
-  ordinary windows (the compositor has no xdg-foreign).
+- **ScreenCast** (version 5, `screencast.cpp`): monitors as sources, the
+  pointer hidden or embedded (no metadata), no restore tokens. Start shows
+  the access dialog with a Display choice ("All displays" when the app
+  allows several) and Share. Each display becomes a PipeWire `Video/Source`
+  node: a first wlr-screencopy capture gives the size and format (BGRx or
+  RGBx), the stream offers exactly that with a variable frame rate (at most
+  30 a second), and drives the graph itself: every capture after the first
+  waits for damage (`copy_with_damage`), so a still screen costs nothing,
+  and is sent with `pw_stream_trigger_process`. PipeWire's loop runs inside
+  the toolkit's event loop (its fd is watched; no thread). Start answers
+  with the node ids once every stream is registered; xdg-desktop-portal's
+  OpenPipeWireRemote gives the app access to them. While a session shares,
+  a notification says so; it goes when the session closes (the app's
+  Session.Close or its disconnecting).
+- **Parent windows**: `parent_window` "wayland:HANDLE" (xdg-foreign v2;
+  X11 parents are ignored) makes every dialog a child of the app's window.
+  The compositor offers xdg-foreign v1 and v2 (wlroots sets the parent);
+  it centres a child over its parent within that display's usable area,
+  and raising a window raises its children above it.
 - Tests: `tests/tools/portal-request` calls the real xdg-desktop-portal as an
   app would. run-headless.sh gives its private bus the session variables,
   an empty HOME/config/data of its own and `XDG_DESKTOP_PORTAL_DIR` with
   only tetra.portal, and makes this build's tetra-portal activatable.
+  `tetra-foreign-parent` is an app window exported with xdg-foreign. The
+  screencast scenario runs with the private PipeWire (`-a`) and checks a
+  frame with GStreamer's pipewiresrc.
 
 ## System monitor (phase 5)
 
@@ -605,7 +628,8 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
    apps & startup, about; not yet tried on a real seat)*
 5. **Apps and portal** — terminal, system monitor, portal backend.
    *(done: terminal, system monitor, portal backend for settings, screenshots,
-   file chooser and access; not yet tried on a real seat)*
+   colour picking, file chooser, access and screen sharing, with dialogs
+   attached to the app's window; not yet tried on a real seat)*
 6. **Final pieces** — greeter, animations, polish.
 
 ## Open questions

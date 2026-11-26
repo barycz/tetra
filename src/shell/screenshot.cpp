@@ -126,13 +126,14 @@ const wl_data_device_listener DataDeviceListener::listener = {
 
 // --- the region picker -----------------------------------------------------------------
 
-// A frozen copy of the output, full screen; the user drags a rectangle.
+// A frozen copy of the output, full screen; the user drags a rectangle, or
+// (pick_color) clicks one pixel, shown magnified around the pointer.
 class Screenshots::RegionPicker {
 public:
     using Done = std::function<void(const Image& image, std::optional<Rect> pixels)>;
 
-    RegionPicker(Shell& shell, wl_output* output, Image image, Done done)
-        : shell_(shell), image_(std::move(image)), done_(std::move(done)) {
+    RegionPicker(Shell& shell, wl_output* output, Image image, Done done, bool pick_color = false)
+        : shell_(shell), image_(std::move(image)), done_(std::move(done)), pick_color_(pick_color) {
         window_ = std::make_unique<ui::LayerWindow>(
             shell_.app(), ui::LayerWindow::Options{
                               .layer = ui::LayerWindow::Layer::Overlay,
@@ -184,6 +185,12 @@ private:
                          ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddImage(texture_->ref(), {0, 0}, size);
+        if (pick_color_) {
+            draw_color_picker(dl, size);
+            ImGui::End();
+            ImGui::PopStyleVar(2);
+            return;
+        }
 
         // Mouse: press, drag, release.
         const ImVec2 mouse = ImGui::GetIO().MousePos;
@@ -250,9 +257,75 @@ private:
         }
     }
 
+    // The pixel under the pointer, magnified, with its colour; a click picks it.
+    void draw_color_picker(ImDrawList* dl, ImVec2 size) {
+        const auto& p = shell_.app().palette();
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const float ratio = static_cast<float>(image_.width) / size.x;
+        const int cx = std::clamp(static_cast<int>(mouse.x * ratio), 0, image_.width - 1);
+        const int cy = std::clamp(static_cast<int>(mouse.y * ratio), 0, image_.height - 1);
+        const auto pixel = [&](int x, int y) -> std::array<uint8_t, 3> {
+            x = std::clamp(x, 0, image_.width - 1);
+            y = std::clamp(y, 0, image_.height - 1);
+            const std::size_t at = ((static_cast<std::size_t>(y) * image_.width) + x) * 4;
+            return {image_.pixels[at + 2], image_.pixels[at + 1], image_.pixels[at]}; // B G R X
+        };
+
+        constexpr int kRadius = 5; // 11 x 11 pixels
+        constexpr float kCell = 12;
+        constexpr float kLoupe = kCell * ((2 * kRadius) + 1);
+        const bool inside = ImGui::IsMousePosValid();
+        if (inside) {
+            ImVec2 at{mouse.x + 24, mouse.y + 24};
+            if (at.x + kLoupe > size.x) {
+                at.x = mouse.x - 24 - kLoupe;
+            }
+            if (at.y + kLoupe + 40 > size.y) {
+                at.y = mouse.y - 24 - kLoupe - 40;
+            }
+            dl->AddRectFilled({at.x - 4, at.y - 4}, {at.x + kLoupe + 4, at.y + kLoupe + 40},
+                              ui::to_imu32(p.surface), 8);
+            for (int dy = -kRadius; dy <= kRadius; ++dy) {
+                for (int dx = -kRadius; dx <= kRadius; ++dx) {
+                    const auto c = pixel(cx + dx, cy + dy);
+                    const ImVec2 a{at.x + (static_cast<float>(dx + kRadius) * kCell),
+                                   at.y + (static_cast<float>(dy + kRadius) * kCell)};
+                    dl->AddRectFilled(a, {a.x + kCell, a.y + kCell}, IM_COL32(c[0], c[1], c[2], 255));
+                }
+            }
+            const ImVec2 centre{at.x + (kRadius * kCell), at.y + (kRadius * kCell)};
+            dl->AddRect({centre.x - 1, centre.y - 1}, {centre.x + kCell + 1, centre.y + kCell + 1},
+                        IM_COL32(0, 0, 0, 255), 0, 1.5F);
+            dl->AddRect(centre, {centre.x + kCell, centre.y + kCell}, IM_COL32(255, 255, 255, 255));
+            const auto c = pixel(cx, cy);
+            const std::string hex = std::format("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
+            const ImVec2 swatch{at.x, at.y + kLoupe + 8};
+            dl->AddRectFilled(swatch, {swatch.x + 24, swatch.y + 24}, IM_COL32(c[0], c[1], c[2], 255), 4);
+            dl->AddRect(swatch, {swatch.x + 24, swatch.y + 24}, ui::to_imu32(p.separator), 4);
+            dl->AddText({swatch.x + 32, swatch.y + 4}, ui::to_imu32(p.text), hex.c_str());
+        }
+
+        const char* hint = "Click to pick a colour · Esc to cancel";
+        const ImVec2 hint_size = ImGui::CalcTextSize(hint);
+        const ImVec2 hint_at{std::round((size.x - hint_size.x) / 2), 24};
+        dl->AddRectFilled({hint_at.x - 14, hint_at.y - 8},
+                          {hint_at.x + hint_size.x + 14, hint_at.y + hint_size.y + 8},
+                          ui::to_imu32(p.surface), 8);
+        dl->AddText(hint_at, ui::to_imu32(p.text), hint);
+        // The magnifier follows the pointer.
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            finish(std::nullopt);
+        } else if (inside && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+            finish(Rect{.x = cx, .y = cy, .width = 1, .height = 1});
+        }
+    }
+
     Shell& shell_;
     Image image_;
     Done done_;
+    bool pick_color_ = false;
     std::unique_ptr<ui::Texture> texture_;
     std::unique_ptr<ui::LayerWindow> window_;
     ImVec2 start_{};
@@ -424,6 +497,19 @@ void Screenshots::request(bool interactive, Done done) {
     });
 }
 
+void Screenshots::pick_color(ColorDone done) {
+    if (pending_ || color_pending_ || capture_ || picker_ || screencopy_ == nullptr ||
+        !shell_.request_screenshot(TETRA_SHELL_V1_SCREENSHOT_MODE_REGION)) {
+        done(std::nullopt); // one at a time
+        return;
+    }
+    color_pending_ = std::move(done);
+    pending_timer_ = shell_.app().add_timer(std::chrono::seconds(3), [this] {
+        pending_timer_.reset();
+        fail_pending();
+    });
+}
+
 void Screenshots::fail_pending() {
     if (pending_timer_) {
         shell_.app().cancel_timer(*pending_timer_);
@@ -432,6 +518,11 @@ void Screenshots::fail_pending() {
     if (pending_) {
         Done done = std::move(pending_);
         pending_ = nullptr;
+        done(std::nullopt);
+    }
+    if (color_pending_) {
+        ColorDone done = std::move(color_pending_);
+        color_pending_ = nullptr;
         done(std::nullopt);
     }
 }
@@ -447,13 +538,15 @@ void Screenshots::take(uint32_t serial, uint32_t mode, wl_output* output, int x,
         return; // one at a time
     }
     capture_ = std::make_unique<Capture>();
-    if (pending_) { // the portal asked for this one
+    if (pending_ || color_pending_) { // the portal asked for this one
         if (pending_timer_) {
             shell_.app().cancel_timer(*pending_timer_);
             pending_timer_.reset();
         }
         capture_->done = std::move(pending_);
         pending_ = nullptr;
+        capture_->color = std::move(color_pending_);
+        color_pending_ = nullptr;
     }
     capture_->owner = this;
     capture_->serial = serial;
@@ -511,9 +604,13 @@ void Screenshots::end_capture() {
         close(c.fd);
     }
     Done done = std::move(c.done);
+    ColorDone color = std::move(c.color);
     capture_.reset();
     if (done) { // ended without a picture
         done(std::nullopt);
+    }
+    if (color) {
+        color(std::nullopt);
     }
 }
 
@@ -542,7 +639,27 @@ void Screenshots::captured(Capture& c) {
     const Rect box = c.box;
     Done done = std::move(c.done);
     c.done = nullptr;
+    ColorDone color = std::move(c.color);
+    c.color = nullptr;
     end_capture(); // `c` is gone from here on
+
+    if (color) {
+        picker_ = std::make_unique<RegionPicker>(
+            shell_, output, std::move(image),
+            [this, color = std::move(color)](const Image& picked, std::optional<Rect> pixels) {
+                if (pixels) {
+                    const std::size_t at =
+                        ((static_cast<std::size_t>(pixels->y) * picked.width) + pixels->x) * 4;
+                    color(std::array<double, 3>{picked.pixels[at + 2] / 255.0, picked.pixels[at + 1] / 255.0,
+                                                picked.pixels[at] / 255.0});
+                } else {
+                    color(std::nullopt);
+                }
+                close_picker();
+            },
+            true);
+        return;
+    }
 
     if (mode == TETRA_SHELL_V1_SCREENSHOT_MODE_REGION) {
         picker_ = std::make_unique<RegionPicker>(

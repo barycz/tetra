@@ -22,7 +22,8 @@ AccessDialog::AccessDialog(ui::App& app, AccessOptions options, std::function<vo
     window_ = std::make_unique<ui::ToplevelWindow>(
         app_, ui::ToplevelWindow::Options{.title = options_.title.empty() ? "Allow access?" : options_.title,
                                           .width = 480,
-                                          .height = height});
+                                          .height = height,
+                                          .parent = options_.parent});
     window_->on_draw = [this] { draw(); };
     window_->on_close = [this] { finish(false); };
 }

@@ -506,10 +506,25 @@ ToplevelWindow::ToplevelWindow(App& app, const Options& options) : Window(app), 
         zxdg_toplevel_decoration_v1_set_mode(decoration_,
                                              ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
     }
+    // Before the first commit, so the compositor knows the parent when it
+    // places the window.
+    if (!options_.parent.empty()) {
+        importer_ = static_cast<zxdg_importer_v2*>(app_.bind_global(&zxdg_importer_v2_interface, 1));
+        if (importer_ != nullptr) {
+            imported_ = zxdg_importer_v2_import_toplevel(importer_, options_.parent.c_str());
+            zxdg_imported_v2_set_parent_of(imported_, surface_);
+        }
+    }
     wl_surface_commit(surface_);
 }
 
 ToplevelWindow::~ToplevelWindow() {
+    if (imported_ != nullptr) {
+        zxdg_imported_v2_destroy(imported_);
+    }
+    if (importer_ != nullptr) {
+        zxdg_importer_v2_destroy(importer_);
+    }
     if (decoration_ != nullptr) {
         zxdg_toplevel_decoration_v1_destroy(decoration_);
     }

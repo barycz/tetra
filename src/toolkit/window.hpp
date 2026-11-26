@@ -16,6 +16,8 @@ struct xdg_surface;
 struct xdg_toplevel;
 struct zwlr_layer_surface_v1;
 struct zxdg_toplevel_decoration_v1;
+struct zxdg_imported_v2;
+struct zxdg_importer_v2;
 
 namespace tetra::ui {
 
@@ -165,6 +167,10 @@ public:
         std::string title;
         int width = 800;
         int height = 600;
+        // A window of another client exported with xdg-foreign v2 (a
+        // portal's parent_window "wayland:HANDLE"): this one becomes its
+        // child (a dialog placed over it and kept above it).
+        std::string parent;
     };
 
     ToplevelWindow(App& app, const Options& options);
@@ -186,6 +192,8 @@ private:
     xdg_surface* xdg_surface_ = nullptr;
     xdg_toplevel* xdg_toplevel_ = nullptr;
     zxdg_toplevel_decoration_v1* decoration_ = nullptr;
+    zxdg_importer_v2* importer_ = nullptr;
+    zxdg_imported_v2* imported_ = nullptr;
     int pending_width_ = 0;
     int pending_height_ = 0;
 };

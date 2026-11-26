@@ -78,7 +78,7 @@ Monitor::Monitor(ui::App& app) : app_(app), icons_(app) {
     sampler_.sample(0);
     last_sample_ = std::chrono::steady_clock::now();
     window_ = std::make_unique<ui::ToplevelWindow>(
-        app_, ui::ToplevelWindow::Options{.title = "System Monitor", .width = 960, .height = 600});
+        app_, ui::ToplevelWindow::Options{.title = "System Monitor", .width = 960, .height = 600, .parent = {}});
     window_->on_draw = [this] { draw(); };
     window_->on_key = [this](const ui::KeyEvent& key) {
         // Typing anywhere on the Processes page searches.

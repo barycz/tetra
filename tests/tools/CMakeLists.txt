@@ -21,3 +21,6 @@ target_link_libraries(tetra-pointer PRIVATE PkgConfig::TEST_TOOL_DEPS tetra_warn
 find_package(sdbus-c++ 2 REQUIRED)
 add_executable(tetra-tray-item tray_item.cpp)
 target_link_libraries(tetra-tray-item PRIVATE SDBusCpp::sdbus-c++ tetra_warnings)
+
+add_executable(tetra-foreign-parent foreign_parent.cpp)
+target_link_libraries(tetra-foreign-parent PRIVATE tetra_toolkit tetra_warnings)

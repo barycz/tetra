@@ -20,6 +20,7 @@ struct AccessOptions {
     std::string grant_label;
     std::string deny_label;
     std::vector<Choice> choices;
+    std::string parent; // the app's window (xdg-foreign handle)
 };
 
 // org.freedesktop.impl.portal.Access: a small window asking the user to

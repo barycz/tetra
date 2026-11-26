@@ -5,6 +5,7 @@
 #include "appearance.hpp"
 #include "file_dialog.hpp"
 #include "files.hpp"
+#include "screencast.hpp"
 
 #include <sdbus-c++/sdbus-c++.h>
 
@@ -21,6 +22,7 @@ namespace tetra::portal {
 //   FileChooser  tetra's own file dialog (file_dialog.hpp)
 //   Access       allow/deny questions (access_dialog.hpp; xdg-desktop-portal
 //                offers Screenshot only with an Access backend)
+//   ScreenCast   a display as a PipeWire video stream (screencast.hpp)
 // xdg-desktop-portal finds it through tetra.portal and tetra-portals.conf.
 class Portal {
 public:
@@ -45,6 +47,7 @@ private:
         std::shared_ptr<Response> reply;
         std::unique_ptr<FileDialog> dialog;
         std::unique_ptr<AccessDialog> access;
+        std::function<void()> on_close; // the app gave up (Request.Close)
         bool answered = false;
     };
 
@@ -53,8 +56,9 @@ private:
     void answer(const std::string& handle, uint32_t response, Options results = {});
 
     void open_dialog(Response&& reply, const sdbus::ObjectPath& handle, const std::string& title,
-                     const Options& options, DialogOptions::Mode mode);
+                     const std::string& parent, const Options& options, DialogOptions::Mode mode);
     void screenshot(Response&& reply, const sdbus::ObjectPath& handle, const Options& options);
+    void pick_color(Response&& reply, const sdbus::ObjectPath& handle);
     void access_dialog(Response&& reply, const sdbus::ObjectPath& handle, AccessOptions access,
                        const Options& options);
 
@@ -69,6 +73,7 @@ private:
     Appearance appearance_;
     fs::path last_folder_; // where the last dialog ended
     std::map<std::string, std::unique_ptr<Request>> requests_;
+    std::unique_ptr<ScreenCast> screencast_;
 };
 
 } // namespace tetra::portal

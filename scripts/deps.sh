@@ -32,7 +32,7 @@ packages=(
     libsdbus-c++-dev libpam0g-dev libnotify-bin libpulse-dev
 
     # apps: terminal emulation; the portal frontend tetra-portal serves
-    libvterm-dev xdg-desktop-portal shared-mime-info
+    libvterm-dev xdg-desktop-portal shared-mime-info libpipewire-0.3-dev
 
     # dev/test tools: screenshots, reference terminals, X11 test apps,
     # input injection, EGL info, fake PAM for lock screen tests, display
@@ -41,7 +41,7 @@ packages=(
     grim foot xterm x11-apps wlrctl mesa-utils libpam-wrapper wl-clipboard
     wlr-randr pipewire pipewire-pulse wireplumber pulseaudio-utils
     # portal tests: a scripted portal client (Python GIO), a GTK 4 app
-    python3-gi gir1.2-glib-2.0 zenity
+    python3-gi gir1.2-glib-2.0 zenity gstreamer1.0-pipewire gstreamer1.0-tools
 )
 
 sudo apt-get update -qq

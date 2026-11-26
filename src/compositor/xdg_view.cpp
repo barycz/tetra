@@ -55,6 +55,12 @@ XdgView::XdgView(Server& server, wlr_xdg_toplevel* toplevel) : View(server), top
             wlr_xdg_surface_schedule_configure(toplevel_->base);
         }
     });
+    // A parent set after mapping (xdg-foreign's set_parent_of): above it.
+    set_parent_.connect(toplevel_->events.set_parent, [this] {
+        if (const View* parent = parent_view(); parent != nullptr && mapped()) {
+            raise();
+        }
+    });
     request_minimize_.connect(toplevel_->events.request_minimize, [this] {
         if (mapped() && toplevel_->requested.minimized) {
             set_minimized(true);
@@ -123,6 +129,19 @@ void XdgView::send_fullscreen(bool fullscreen) {
 
 wlr_box XdgView::surface_geometry() const {
     return toplevel_->base->geometry;
+}
+
+View* XdgView::parent_view() const {
+    if (toplevel_->parent == nullptr) {
+        return nullptr;
+    }
+    for (const auto& view : server_.views()) {
+        const auto* xdg = dynamic_cast<const XdgView*>(view.get());
+        if (xdg != nullptr && xdg->toplevel() == toplevel_->parent) {
+            return view.get();
+        }
+    }
+    return nullptr;
 }
 
 } // namespace tetra

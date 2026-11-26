@@ -57,7 +57,8 @@ Terminal::Terminal(ui::App& app, Options options) : app_(app), options_(std::mov
     window_ = std::make_unique<ui::ToplevelWindow>(
         app_, ui::ToplevelWindow::Options{.title = options_.title.empty() ? "Terminal" : options_.title,
                                           .width = width,
-                                          .height = height});
+                                          .height = height,
+                                          .parent = {}});
     window_->on_load_fonts = [this] { load_fonts(); };
     window_->apply_theme(); // loads the monospace fonts too
     window_->on_draw = [this] { draw(); };

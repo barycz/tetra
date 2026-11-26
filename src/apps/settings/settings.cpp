@@ -68,7 +68,7 @@ Settings::Settings(ui::App& app) : app_(app), icons_(app), displays_(app), audio
     }
 
     window_ = std::make_unique<ui::ToplevelWindow>(
-        app_, ui::ToplevelWindow::Options{.title = "Settings", .width = 980, .height = 680});
+        app_, ui::ToplevelWindow::Options{.title = "Settings", .width = 980, .height = 680, .parent = {}});
     window_->on_draw = [this] { draw(); };
     displays_.on_changed = [this] { window_->request_redraw(); };
     audio_.on_changed = [this] { window_->request_redraw(); };

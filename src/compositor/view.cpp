@@ -149,12 +149,21 @@ void View::handle_title_changed() {
 }
 
 void View::place_initially() {
-    const wlr_box area = server_.usable_area_at_cursor();
+    wlr_box area = server_.usable_area_at_cursor();
     const wlr_box outer = frame();
     const int dx = content_.x - outer.x; // decoration extents
     const int dy = content_.y - outer.y;
-    const int x = area.x + std::max(0, (area.width - outer.width) / 2);
-    const int y = area.y + std::max(0, (area.height - outer.height) / 2);
+    int x = area.x + std::max(0, (area.width - outer.width) / 2);
+    int y = area.y + std::max(0, (area.height - outer.height) / 2);
+    if (const View* parent = parent_view(); parent != nullptr && parent->mapped()) {
+        // A dialog: centred over its window, inside that window's display.
+        const wlr_box over = parent->frame();
+        area = parent->usable_area();
+        x = over.x + ((over.width - outer.width) / 2);
+        y = over.y + ((over.height - outer.height) / 2);
+        x = std::clamp(x, area.x, std::max(area.x, area.x + area.width - outer.width));
+        y = std::clamp(y, area.y, std::max(area.y, area.y + area.height - outer.height));
+    }
     move_to(x + dx, y + dy);
 }
 

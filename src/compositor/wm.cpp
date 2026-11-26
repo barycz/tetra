@@ -177,12 +177,23 @@ void Server::focus_view(View* view) {
     }
     focused_view_ = view;
     view->raise();
+    raise_children(view);
     std::erase(focus_order_, view);
     focus_order_.insert(focus_order_.begin(), view);
     view->set_activated(true);
     focused_layer_ = nullptr;
     restore_keyboard_focus();
     taskbar_.view_focused(*view);
+}
+
+void Server::raise_children(View* parent) {
+    // Dialogs stay above the window they belong to.
+    for (const auto& child : views_) {
+        if (child->mapped() && child->parent_view() == parent && child.get() != parent) {
+            child->raise();
+            raise_children(child.get());
+        }
+    }
 }
 
 void Server::focus_next_view() {

@@ -257,6 +257,11 @@ void Server::init_protocols() {
     wlr_fractional_scale_manager_v1_create(display, 1);
     wlr_presentation_create(display, backend, 2);
     wlr_screencopy_manager_v1_create(display);
+    // xdg-foreign: a client's window as the parent of another client's
+    // (portal dialogs over the app that asked). wlroots sets the parent.
+    wlr_xdg_foreign_registry* foreign = wlr_xdg_foreign_registry_create(display);
+    wlr_xdg_foreign_v1_create(display, foreign);
+    wlr_xdg_foreign_v2_create(display, foreign);
     wlr_xdg_output_manager_v1_create(display, output_layout);
 
     // Idle: clients (tetra-shell) get notified after a timeout without

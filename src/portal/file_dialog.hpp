@@ -37,6 +37,7 @@ struct DialogOptions {
     std::string current_name;       // Save: the suggested name
     fs::path folder;                // where to start
     std::vector<std::string> files; // SaveFiles: the names to save
+    std::string parent;             // the app's window (xdg-foreign handle)
 };
 
 struct DialogResult {
