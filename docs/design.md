@@ -337,6 +337,36 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
     `IsWindowHovered()` is false while an item in the window is active.
   - Never destroy a window from its own draw callback; defer it to a timer.
 
+## System monitor (phase 5)
+
+- `tetra-monitor [--search TEXT] [processes|resources|filesystems]`;
+  Ctrl+Shift+Escape focuses it or starts it (the compositor's `open_app`,
+  as Super+I does for Settings).
+- Data: `/proc` and `/sys` read every second (0.5-5 s, or paused) by
+  `procfs.cpp`; `Sampler` turns two readings into rates and keeps 120
+  samples per graph. Both take a root directory, so the unit tests run
+  them on a fake `/proc` (`tests/unit/monitor_test.cpp`). A process is
+  its pid *and* start time (pids are reused). Its command line is read
+  once; comm, cut at 15 characters, is replaced by argv[0]'s file name.
+- Numbers: process CPU is a share of the whole machine (all processes
+  add up to the CPU total); process memory is private resident memory
+  (RssAnon, from statm); disk rates come from `/proc/PID/io` (only for
+  processes the user may inspect, "-" otherwise). System memory used is
+  MemTotal - MemAvailable. Disk totals count whole disks only: entries of
+  `/sys/block` without loop/ram/zram and without `slaves` (dm, md), so
+  nothing counts twice. Network leaves out loopback. File systems are the
+  mounts backed by a device, one per device; "used" is relative to what
+  non-root users can use, as `df` shows.
+- Processes: a table (sortable, columns can be hidden, reordered and
+  resized from the header) with search over name, command, user and pid;
+  typing anywhere searches, Up/Down select (leaving the search), Delete
+  ends and Shift+Delete kills after a confirmation. A tree view nests
+  processes under their parent (a search shows a flat list). The context
+  menu also stops, continues and copies the command line. Not allowed
+  (another user's process) is reported, not escalated.
+- Resources: CPU (total and per core), memory and swap, network, disks;
+  rate graphs scale to 1/2/5 x 10^n.
+
 ## Terminal (phase 5)
 
 - `tetra-terminal [--app-id ID] [--title T] [-e] [COMMAND...]`: one
@@ -528,7 +558,7 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
    memory, sound, taskbar pins, keyboard, mouse & touchpad, lock & power,
    apps & startup, about; not yet tried on a real seat)*
 5. **Apps and portal** — terminal, system monitor, portal backend.
-   *(in progress: terminal; next: system monitor, portal)*
+   *(done: terminal, system monitor; next: portal backend)*
 6. **Final pieces** — greeter, animations, polish.
 
 ## Open questions

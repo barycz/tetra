@@ -81,6 +81,7 @@ printf '[Desktop Entry]\nName=tetra (dev build)\nExec=%s\nType=Application\n' \
 | Shift+Print, Super+Shift+S | screenshot of an area (drag; Esc cancels) |
 | Alt+Print | screenshot of the focused window |
 | Super+I | Settings |
+| Ctrl+Shift+Escape | System Monitor |
 | Super+L | lock the screen (also after `idle.lock_after`, before sleep, `loginctl lock-session`) |
 | Super+Shift+Escape | quit tetra |
 | Ctrl+Alt+F1…F12 | switch VT |
@@ -98,7 +99,7 @@ src/compositor/   the compositor (binary: tetra), incl. the task bar slot model
 src/toolkit/      ImGui-on-Wayland toolkit for the shell and apps (incl. icons)
 src/shell/        tetra-shell: bar, launcher, tray (incl. app icons), notifications, volume/OSD,
                   lock screen, idle, polkit agent, screenshots
-src/apps/         apps: settings (tetra-settings)
+src/apps/         apps: settings (tetra-settings), terminal (tetra-terminal), system monitor (tetra-monitor)
 data/             files installed alongside (PAM service, desktop entries)
 tests/unit/       unit tests (config editing)
 protocols/        tetra's private Wayland protocol (compositor <-> shell)

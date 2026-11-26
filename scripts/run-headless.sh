@@ -62,7 +62,7 @@ export TETRA_OUTPUT_SIZE="$size"
 export LSAN_OPTIONS="${LSAN_OPTIONS:-suppressions=$root/scripts/lsan.supp:print_suppressions=0}"
 # Test helpers for the scenario scripts: built ones (tetra-sendkeys) and
 # scripts (polkit-request); also the apps (tetra-settings).
-export PATH="$root/build/$preset/tests/tools:$root/tests/tools:$root/build/$preset/src/apps/settings:$root/build/$preset/src/apps/terminal:$PATH"
+export PATH="$root/build/$preset/tests/tools:$root/tests/tools:$root/build/$preset/src/apps/settings:$root/build/$preset/src/apps/terminal:$root/build/$preset/src/apps/monitor:$PATH"
 
 # The lock screen must never check (or need) a real password: everything
 # runs under pam_wrapper (it only intercepts PAM calls, i.e. the shell's),

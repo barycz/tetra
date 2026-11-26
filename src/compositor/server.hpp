@@ -61,8 +61,9 @@ public:
     [[nodiscard]] View* focused_view() const noexcept { return focused_view_; }
     // Super tap: ask the shell to open its launcher.
     void show_launcher();
-    // Super+I: focus Settings, or start it.
-    void open_settings();
+    // Focus a window of one of tetra's apps, or start it (Super+I:
+    // "tetra-settings" from "apps/settings").
+    void open_app(std::string_view app_id, const std::string& build_dir);
 
     // --- session lock and idle (server.cpp) -------------------------------------
     // Asks the shell to lock the session (Super+L, or a lock client died).

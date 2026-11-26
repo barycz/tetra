@@ -381,7 +381,10 @@ void snap_zones() {
     check(error(R"({"windows": {"zone_gap": 100}})").contains("zone_gap"), "gap range");
 }
 
+int monitor_tests(); // monitor_test.cpp
+
 int main() {
+    failures += monitor_tests();
     replace_keeps_comments();
     insert_after_trailing_comment();
     insert_into_inline_object();

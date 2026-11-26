@@ -682,12 +682,17 @@ bool Server::handle_keybinding(uint32_t modifiers, xkb_keysym_t sym) {
     const bool super = (modifiers & WLR_MODIFIER_LOGO) != 0;
     const bool shift = (modifiers & WLR_MODIFIER_SHIFT) != 0;
     const bool alt = (modifiers & WLR_MODIFIER_ALT) != 0;
+    const bool ctrl = (modifiers & WLR_MODIFIER_CTRL) != 0;
     if (super && (sym == XKB_KEY_l || sym == XKB_KEY_L)) {
         request_lock();
         return true;
     }
     if (super && (sym == XKB_KEY_i || sym == XKB_KEY_I)) {
-        open_settings();
+        open_app("tetra-settings", "apps/settings");
+        return true;
+    }
+    if (ctrl && shift && sym == XKB_KEY_Escape) {
+        open_app("tetra-monitor", "apps/monitor");
         return true;
     }
     // Screenshots: Print (output), Shift+Print or Super+Shift+S (region),

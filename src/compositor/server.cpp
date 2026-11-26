@@ -641,15 +641,14 @@ std::string Server::locate(const std::string& program, const std::string& build_
     return program;
 }
 
-void Server::open_settings() {
-    constexpr std::string_view kAppId = "tetra-settings";
+void Server::open_app(std::string_view app_id, const std::string& build_dir) {
     for (View* view : focus_order_) {
-        if (view->app_id() == kAppId) {
+        if (view->app_id() == app_id) {
             focus_view(view);
             return;
         }
     }
-    spawn_argv({locate(std::string(kAppId), "apps/settings")});
+    spawn_argv({locate(std::string(app_id), build_dir)});
 }
 
 void Server::start_shell() {
