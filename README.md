@@ -63,6 +63,23 @@ printf '[Desktop Entry]\nName=tetra (dev build)\nExec=%s\nType=Application\n' \
   "$PWD/build/debug/src/compositor/tetra" | sudo tee /usr/share/wayland-sessions/tetra-dev.desktop
 ```
 
+**Portal backend** (GTK/Qt/Firefox use tetra's file dialog, screenshots
+and dark/light setting). `sudo cmake --install build/release` installs it
+with everything else. To use it from a dev build instead (the `.portal` file
+must be in the system directory):
+
+```bash
+sudo install -Dm644 data/portal/tetra.portal /usr/share/xdg-desktop-portal/portals/tetra.portal
+install -Dm644 data/portal/tetra-portals.conf ~/.config/xdg-desktop-portal/tetra-portals.conf
+mkdir -p ~/.local/share/dbus-1/services
+printf '[D-BUS Service]\nName=org.freedesktop.impl.portal.desktop.tetra\nExec=%s\n' \
+  "$PWD/build/debug/src/portal/tetra-portal" \
+  > ~/.local/share/dbus-1/services/org.freedesktop.impl.portal.desktop.tetra.service
+```
+
+xdg-desktop-portal reads `XDG_CURRENT_DESKTOP` when it starts: after
+switching from another desktop, `systemctl --user restart xdg-desktop-portal`.
+
 ## Using it
 
 | Input | Action |
@@ -100,12 +117,14 @@ src/toolkit/      ImGui-on-Wayland toolkit for the shell and apps (incl. icons)
 src/shell/        tetra-shell: bar, launcher, tray (incl. app icons), notifications, volume/OSD,
                   lock screen, idle, polkit agent, screenshots
 src/apps/         apps: settings (tetra-settings), terminal (tetra-terminal), system monitor (tetra-monitor)
+src/portal/       tetra-portal: xdg-desktop-portal backend (settings, screenshots, file chooser)
 data/             files installed alongside (PAM service, desktop entries)
 tests/unit/       unit tests (config editing)
 protocols/        tetra's private Wayland protocol (compositor <-> shell)
 scripts/          deps, vendored build, headless runner, test runner
 tests/headless/   scripted headless scenarios
-tests/tools/      tetra-sendkeys, tetra-pointer, tetra-tray-item, polkit-request, fake-polkit-helper
+tests/tools/      tetra-sendkeys, tetra-pointer, tetra-tray-item, polkit-request, fake-polkit-helper,
+                  portal-request
 patches/          local patches to vendored dependencies
 third_party/      pinned submodules (wlroots, wayland, imgui, ...)
 docs/             design notes, configuration reference

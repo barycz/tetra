@@ -382,9 +382,11 @@ void snap_zones() {
 }
 
 int monitor_tests(); // monitor_test.cpp
+int portal_tests();  // portal_test.cpp
 
 int main() {
     failures += monitor_tests();
+    failures += portal_tests();
     replace_keeps_comments();
     insert_after_trailing_comment();
     insert_into_inline_object();

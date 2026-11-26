@@ -246,12 +246,22 @@ void Monitor::process_table(float height) {
                                        ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
                                        ImGuiTableFlags_BordersOuter | ImGuiTableFlags_SizingFixedFit;
     ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ui::to_imvec4(ui::mix(p.window, p.hover)));
+    // The selection in the accent colour: the theme's header colour is too
+    // close to the alternating row shade to see.
+    const auto accent = [&](float alpha) {
+        config::Color c = p.accent;
+        c.a = alpha;
+        return ui::to_imvec4(ui::mix(p.window, c));
+    };
+    ImGui::PushStyleColor(ImGuiCol_Header, accent(0.35F));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, accent(0.45F));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, accent(0.5F));
     ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, ui::to_imvec4(p.separator));
     ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, ui::to_imvec4(p.surface));
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {8, 4});
     if (!ImGui::BeginTable("##processes", 11, kFlags, {0, height})) {
         ImGui::PopStyleVar();
-        ImGui::PopStyleColor(3);
+        ImGui::PopStyleColor(6);
         return;
     }
     const auto fixed = ImGuiTableColumnFlags_WidthFixed;
@@ -415,7 +425,7 @@ void Monitor::process_table(float height) {
     }
     ImGui::EndTable();
     ImGui::PopStyleVar();
-    ImGui::PopStyleColor(3);
+    ImGui::PopStyleColor(6);
     shown_ = static_cast<int>(rows.size());
 }
 

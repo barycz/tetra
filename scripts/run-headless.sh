@@ -101,7 +101,22 @@ args=(-c "$config")
 
 # A private session bus: the shell under test must not take over (or
 # disturb) the services of a real session running on this machine.
-dbus_info="$(dbus-daemon --session --fork --print-address=1 --print-pid=1 \
+#
+# Services it starts on demand (xdg-desktop-portal, tetra-portal from this
+# build, the permission store, ...) get this session's display and a home,
+# config and data dirs of their own, so they never touch the developer's
+# files. xdg-desktop-portal uses tetra's backend only.
+mkdir -p "$runtime/data/dbus-1/services" "$runtime/portals" "$runtime/config" "$runtime/home"
+printf '[D-BUS Service]\nName=org.freedesktop.impl.portal.desktop.tetra\nExec=%s\n' \
+    "$root/build/$preset/src/portal/tetra-portal" \
+    >"$runtime/data/dbus-1/services/org.freedesktop.impl.portal.desktop.tetra.service"
+cp "$root/data/portal/tetra.portal" "$runtime/portals/"
+# With XDG_DESKTOP_PORTAL_DIR set, the configuration is read from there too.
+printf '[preferred]\ndefault=tetra\n' >"$runtime/portals/tetra-portals.conf"
+dbus_info="$(env WAYLAND_DISPLAY=wayland-0 XDG_CURRENT_DESKTOP=tetra XDG_SESSION_TYPE=wayland \
+    TETRA_CONFIG="$config" HOME="$runtime/home" XDG_CONFIG_HOME="$runtime/config" \
+    XDG_DATA_HOME="$runtime/data" XDG_DESKTOP_PORTAL_DIR="$runtime/portals" \
+    dbus-daemon --session --fork --print-address=1 --print-pid=1 \
     --address="unix:path=$runtime/bus")"
 export DBUS_SESSION_BUS_ADDRESS="$(sed -n 1p <<<"$dbus_info")"
 dbus_pid="$(sed -n 2p <<<"$dbus_info")"

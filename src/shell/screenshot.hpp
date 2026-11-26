@@ -2,6 +2,8 @@
 
 #include <wayland-client.h>
 
+#include "app.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -43,6 +45,13 @@ public:
     // Arguments of tetra_shell_v1.screenshot.
     void take(uint32_t serial, uint32_t mode, wl_output* output, int x, int y, int width, int height);
 
+    // For the screenshot portal (org.tetra.Shell1): asks the compositor for
+    // the screenshot Print (or, if interactive, Shift+Print) would take.
+    // `done` gets the saved file, or nothing if the user cancelled or it
+    // failed. It is not put on the clipboard.
+    using Done = std::function<void(std::optional<std::filesystem::path>)>;
+    void request(bool interactive, Done done);
+
     // Where screenshots go: $XDG_PICTURES_DIR (or user-dirs.dirs, or
     // ~/Pictures) + /Screenshots.
     static std::filesystem::path directory();
@@ -80,14 +89,16 @@ private:
         uint32_t serial = 0;
         uint32_t mode = 0;
         wl_output* output = nullptr;
-        Rect box; // logical, relative to the output
+        Rect box;  // logical, relative to the output
+        Done done; // a portal request
     };
     class RegionPicker;
 
     void copy_frame(Capture& capture);
     void captured(Capture& capture);
     void end_capture();
-    void crop_and_save(const Image& image, Rect pixels, uint32_t serial);
+    void crop_and_save(const Image& image, Rect pixels, uint32_t serial, Done done);
+    void fail_pending();
     void set_clipboard(std::shared_ptr<const std::vector<uint8_t>> png, uint32_t serial);
     void close_picker();
 
@@ -101,6 +112,9 @@ private:
     std::shared_ptr<const std::vector<uint8_t>> clipboard_;
     std::unique_ptr<Capture> capture_;
     std::unique_ptr<RegionPicker> picker_;
+    // A portal request waiting for the compositor's screenshot event.
+    Done pending_;
+    std::optional<ui::App::TimerId> pending_timer_;
 };
 
 } // namespace tetra::shell

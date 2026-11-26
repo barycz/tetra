@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Talks to xdg-desktop-portal (org.freedesktop.portal.Desktop) as an app
+would, for the headless tests. Prints the outcome and exits with the
+portal's response code (0 success, 1 cancelled, 2 other).
+
+  portal-request read NAMESPACE KEY        Settings.ReadOne; prints the value
+  portal-request watch NAMESPACE KEY SECS  waits for Settings.SettingChanged
+  portal-request screenshot [--interactive]
+  portal-request open [--folder DIR] [--multiple] [--directory]
+                      [--filter "NAME:GLOB;GLOB"]... [--title T]
+  portal-request save [--folder DIR] [--name NAME] [--filter ...]
+
+Results print as "response N" and then "key: value" lines.
+"""
+
+import argparse
+import secrets
+import sys
+
+from gi.repository import Gio, GLib
+
+DEST = "org.freedesktop.portal.Desktop"
+PATH = "/org/freedesktop/portal/desktop"
+
+
+def call(bus, interface, method, args, reply_type, timeout_ms=10000):
+    return bus.call_sync(DEST, PATH, interface, method, args, GLib.VariantType(reply_type),
+                         Gio.DBusCallFlags.NONE, timeout_ms, None)
+
+
+def request(bus, interface, method, args_before_options, options):
+    """A call answered by a Request's Response signal."""
+    token = "tetra" + secrets.token_hex(4)
+    sender = bus.get_unique_name()[1:].replace(".", "_")
+    handle = f"{PATH}/request/{sender}/{token}"
+    options["handle_token"] = GLib.Variant("s", token)
+    loop = GLib.MainLoop()
+    outcome = {}
+
+    def on_response(_bus, _sender, _path, _iface, _signal, params):
+        outcome["response"], outcome["results"] = params.unpack()
+        loop.quit()
+
+    bus.signal_subscribe(DEST, "org.freedesktop.portal.Request", "Response", handle, None,
+                         Gio.DBusSignalFlags.NONE,
+                         on_response)
+    args = GLib.Variant(f"({''.join(t for t, _ in args_before_options)}a{{sv}})",
+                        tuple(v for _, v in args_before_options) + (options,))
+    call(bus, interface, method, args, "(o)")
+    GLib.timeout_add_seconds(300, loop.quit)
+    loop.run()
+    if "response" not in outcome:
+        print("no response")
+        return 3
+    print(f"response {outcome['response']}")
+    for key, value in sorted(outcome["results"].items()):
+        print(f"{key}: {value}")
+    return outcome["response"]
+
+
+def filters(specs):
+    out = []
+    for spec in specs:
+        name, _, globs = spec.partition(":")
+        out.append((name, [(0, g) for g in globs.split(";") if g]))
+    return GLib.Variant("a(sa(us))", out)
+
+
+def path_bytes(path):
+    return GLib.Variant("ay", path.encode() + b"\0")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command", required=True)
+    read = sub.add_parser("read")
+    read.add_argument("namespace")
+    read.add_argument("key")
+    watch = sub.add_parser("watch")
+    watch.add_argument("namespace")
+    watch.add_argument("key")
+    watch.add_argument("seconds", type=float)
+    shot = sub.add_parser("screenshot")
+    shot.add_argument("--interactive", action="store_true")
+    for name in ("open", "save"):
+        p = sub.add_parser(name)
+        p.add_argument("--folder")
+        p.add_argument("--title", default="")
+        p.add_argument("--filter", action="append", default=[])
+        if name == "open":
+            p.add_argument("--multiple", action="store_true")
+            p.add_argument("--directory", action="store_true")
+        else:
+            p.add_argument("--name")
+    args = parser.parse_args()
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+
+    if args.command == "read":
+        reply = call(bus, "org.freedesktop.portal.Settings", "ReadOne",
+                     GLib.Variant("(ss)", (args.namespace, args.key)), "(v)")
+        print(reply.unpack()[0])
+        return 0
+    if args.command == "watch":
+        loop = GLib.MainLoop()
+        seen = {}
+
+        def on_changed(_bus, _sender, _path, _iface, _signal, params):
+            namespace, key, value = params.unpack()
+            if namespace == args.namespace and key == args.key:
+                seen["value"] = value
+                loop.quit()
+
+        bus.signal_subscribe(DEST, "org.freedesktop.portal.Settings", "SettingChanged", PATH, None,
+                             Gio.DBusSignalFlags.NONE, on_changed)
+        # Make sure the portal (and its backend) run before anything changes.
+        call(bus, "org.freedesktop.portal.Settings", "ReadOne",
+             GLib.Variant("(ss)", (args.namespace, args.key)), "(v)")
+        print("watching", flush=True)
+        GLib.timeout_add(int(args.seconds * 1000), loop.quit)
+        loop.run()
+        if "value" not in seen:
+            print("no change")
+            return 1
+        print(f"changed: {seen['value']}")
+        return 0
+    if args.command == "screenshot":
+        return request(bus, "org.freedesktop.portal.Screenshot", "Screenshot", [("s", "")],
+                       {"interactive": GLib.Variant("b", args.interactive)})
+
+    options = {}
+    if args.folder:
+        options["current_folder"] = path_bytes(args.folder)
+    if args.filter:
+        options["filters"] = filters(args.filter)
+    if args.command == "open":
+        options["multiple"] = GLib.Variant("b", args.multiple)
+        options["directory"] = GLib.Variant("b", args.directory)
+        return request(bus, "org.freedesktop.portal.FileChooser", "OpenFile",
+                       [("s", ""), ("s", args.title)], options)
+    if args.name:
+        options["current_name"] = GLib.Variant("s", args.name)
+    return request(bus, "org.freedesktop.portal.FileChooser", "SaveFile",
+                   [("s", ""), ("s", args.title)], options)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

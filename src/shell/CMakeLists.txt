@@ -16,6 +16,7 @@ add_executable(tetra-shell
     polkit_agent.cpp
     screenshot.cpp
     shell.cpp
+    shell_service.cpp
     sni.cpp
     tray.cpp
     tray_menu.cpp

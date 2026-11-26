@@ -13,6 +13,7 @@
 #include "osd.hpp"
 #include "polkit_agent.hpp"
 #include "screenshot.hpp"
+#include "shell_service.hpp"
 #include "sni.hpp"
 #include "tray_menu.hpp"
 #include "tray.hpp"
@@ -69,6 +70,10 @@ public:
     [[nodiscard]] Notifications* notifications() noexcept { return notifications_.get(); }
     [[nodiscard]] const ui::OutputInfo* output_info(const wl_output* output) const;
     [[nodiscard]] SniTray* sni() noexcept { return sni_.get(); }
+    [[nodiscard]] Screenshots& screenshots() noexcept { return *screenshots_; }
+    // Asks the compositor for a screenshot (tetra_shell_v1.take_screenshot);
+    // false if it cannot take the request.
+    bool request_screenshot(uint32_t mode);
     // A tray item's menu, above the bar at `anchor_x` on `output`.
     void open_tray_menu(const SniItem& item, wl_output* output, float anchor_x);
     void hide_tray_menu();
@@ -122,6 +127,7 @@ private:
     std::unique_ptr<Notifications> notifications_;
     std::unique_ptr<SniTray> sni_;
     std::unique_ptr<TrayMenu> tray_menu_;
+    std::unique_ptr<ShellService> service_;
 };
 
 } // namespace tetra::shell

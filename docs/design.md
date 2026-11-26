@@ -115,7 +115,7 @@ compositor (tetra)  wlroots, window management, decorations, input, outputs
    │  private Wayland protocol (toplevel list, F-key slots, OSD, shell commands)
 shell               layer-shell client: task bar, launcher, tray, notifications, OSD, lock screen
 apps/               settings, terminal, system monitor
-portal              xdg-desktop-portal backend (file chooser, screenshot, screencast)
+portal              xdg-desktop-portal backend (settings, screenshot, file chooser, access)
 libtoolkit          Wayland client platform + ImGui + theme + shared widgets + event loop
 libcore             config, D-Bus (sdbus-c++), logging, .desktop / MIME / icon lookup
 ```
@@ -337,6 +337,50 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
     `IsWindowHovered()` is false while an item in the window is active.
   - Never destroy a window from its own draw callback; defer it to a timer.
 
+## Portal backend (phase 5)
+
+- `tetra-portal` (libexec) is `org.freedesktop.impl.portal.desktop.tetra`,
+  started by D-Bus activation when xdg-desktop-portal needs it. tetra.portal
+  lists Access, FileChooser, Screenshot and Settings; tetra-portals.conf
+  (for `XDG_CURRENT_DESKTOP=tetra`) prefers tetra, then GTK for the rest
+  (app chooser, printing, ...). It is a toolkit App: dialogs are its windows.
+- **Settings** (version 2): `org.freedesktop.appearance` color-scheme,
+  accent-color, contrast for GTK 4/libadwaita, and
+  `org.gnome.desktop.interface` color-scheme, gtk-theme, accent-color (the
+  GNOME name nearest the accent's hue) and font-name for GTK 3 and others.
+  Derived from config.json's theme (`appearance.cpp`); on live reload only
+  the values that changed go out as SettingChanged.
+- **Screenshot**: asks tetra-shell over D-Bus (`org.tetra.Shell1.Screenshot`,
+  which answers only the owner of the portal's bus name). The shell sends
+  `tetra_shell_v1.take_screenshot` (protocol version 5); the compositor
+  answers with the same screenshot event Print gives (interactive: the
+  region picker). The picture is saved under Pictures/Screenshots like any
+  other (not put on the clipboard; the notification says it was for an
+  app) and the app gets its file:// URI. Cancelled picker: response 1.
+  PickColor answers 2 (not yet).
+- **Access**: xdg-desktop-portal offers Screenshot only with an Access
+  backend, and uses it to ask before an app may take screenshots without
+  the user picking them. `access_dialog.cpp`: a small window with the
+  portal's texts, choices, Deny and Allow (Enter).
+- **FileChooser** (OpenFile, SaveFile, SaveFiles): `file_dialog.cpp`, one
+  window per request. Places (Home, existing XDG user dirs, GTK bookmarks,
+  drives under /media/USER and /run/media/USER, Computer), back/forward/up,
+  the path as buttons (Ctrl+L or, when opening, just typing switches to a
+  location field; `~` works), a sortable list with folders first, hidden
+  files on Ctrl+H, new folder, the app's filters (globs and MIME types via
+  shared-mime-info's globs2 and subclasses) and choices. Open: several
+  files with Ctrl/Shift-click when allowed, folders in directory mode. Save:
+  the name field starts with its stem selected; an existing file asks
+  "Replace?". Results: `uris`, `choices`, `current_filter`. A Request's
+  Close cancels the dialog. The next dialog starts where the last one ended
+  unless the app says where.
+- Parent windows (`parent_window`) are not used yet: the dialogs are
+  ordinary windows (the compositor has no xdg-foreign).
+- Tests: `tests/tools/portal-request` calls the real xdg-desktop-portal as an
+  app would. run-headless.sh gives its private bus the session variables,
+  an empty HOME/config/data of its own and `XDG_DESKTOP_PORTAL_DIR` with
+  only tetra.portal, and makes this build's tetra-portal activatable.
+
 ## System monitor (phase 5)
 
 - `tetra-monitor [--search TEXT] [processes|resources|filesystems]`;
@@ -490,7 +534,8 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
     which runs as root.
 - **Screenshots**: the compositor turns Print (output under the pointer),
   Shift+Print or Super+Shift+S (region) and Alt+Print (focused window, frame
-  included) into `tetra_shell_v1.screenshot` (protocol version 4). The event
+  included) into `tetra_shell_v1.screenshot` (protocol version 4; the
+  screenshot portal asks for the same with `take_screenshot`, version 5). The event
   carries the shell's wl_output, a box in output-logical coordinates, and a
   serial registered with the seat for the shell's client. The shell
   captures the whole output with wlr-screencopy (shm, without the cursor)
@@ -529,7 +574,8 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   (it calls the shell's agent like polkitd would); the helper is
   `tests/tools/fake-polkit-helper`, which accepts the same test password.
   Screenshots go to a private `$XDG_PICTURES_DIR`, window memory to a
-  private `$XDG_STATE_HOME`. `tetra-pointer` gives
+  private `$XDG_STATE_HOME`. Portal services activated on the private bus
+  get a private HOME and config/data dirs (see Portal backend). `tetra-pointer` gives
   absolute moves, clicks, drags (wlrctl cannot drag) and wheel notches;
   `tetra-sendkeys --hold` keeps keys (Shift) down meanwhile. wlroots releases a
   virtual pointer's buttons when it goes away, so `hold` keeps running.
@@ -558,7 +604,8 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
    memory, sound, taskbar pins, keyboard, mouse & touchpad, lock & power,
    apps & startup, about; not yet tried on a real seat)*
 5. **Apps and portal** — terminal, system monitor, portal backend.
-   *(done: terminal, system monitor; next: portal backend)*
+   *(done: terminal, system monitor, portal backend for settings, screenshots,
+   file chooser and access; not yet tried on a real seat)*
 6. **Final pieces** — greeter, animations, polish.
 
 ## Open questions

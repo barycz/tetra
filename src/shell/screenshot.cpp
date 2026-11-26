@@ -375,6 +375,7 @@ Screenshots::Screenshots(Shell& shell) : shell_(shell) {
 Screenshots::~Screenshots() {
     picker_.reset();
     end_capture();
+    fail_pending();
     if (source_ != nullptr) {
         wl_data_source_destroy(source_);
     }
@@ -408,16 +409,52 @@ fs::path Screenshots::directory() {
     return pictures / "Screenshots";
 }
 
+void Screenshots::request(bool interactive, Done done) {
+    const uint32_t mode =
+        interactive ? TETRA_SHELL_V1_SCREENSHOT_MODE_REGION : TETRA_SHELL_V1_SCREENSHOT_MODE_OUTPUT;
+    if (pending_ || capture_ || picker_ || screencopy_ == nullptr || !shell_.request_screenshot(mode)) {
+        done(std::nullopt); // one at a time
+        return;
+    }
+    pending_ = std::move(done);
+    // The compositor sends nothing when there is no output to capture.
+    pending_timer_ = shell_.app().add_timer(std::chrono::seconds(3), [this] {
+        pending_timer_.reset();
+        fail_pending();
+    });
+}
+
+void Screenshots::fail_pending() {
+    if (pending_timer_) {
+        shell_.app().cancel_timer(*pending_timer_);
+        pending_timer_.reset();
+    }
+    if (pending_) {
+        Done done = std::move(pending_);
+        pending_ = nullptr;
+        done(std::nullopt);
+    }
+}
+
 void Screenshots::take(uint32_t serial, uint32_t mode, wl_output* output, int x, int y,
                        int width, int height) {
     if (screencopy_ == nullptr || shm_ == nullptr) {
         std::println(stderr, "tetra-shell: screenshot: the compositor offers no screencopy");
+        fail_pending();
         return;
     }
     if (capture_ || picker_) {
         return; // one at a time
     }
     capture_ = std::make_unique<Capture>();
+    if (pending_) { // the portal asked for this one
+        if (pending_timer_) {
+            shell_.app().cancel_timer(*pending_timer_);
+            pending_timer_.reset();
+        }
+        capture_->done = std::move(pending_);
+        pending_ = nullptr;
+    }
     capture_->owner = this;
     capture_->serial = serial;
     capture_->mode = mode;
@@ -473,7 +510,11 @@ void Screenshots::end_capture() {
     if (c.fd >= 0) {
         close(c.fd);
     }
+    Done done = std::move(c.done);
     capture_.reset();
+    if (done) { // ended without a picture
+        done(std::nullopt);
+    }
 }
 
 void Screenshots::captured(Capture& c) {
@@ -499,14 +540,18 @@ void Screenshots::captured(Capture& c) {
     const uint32_t mode = c.mode;
     wl_output* output = c.output;
     const Rect box = c.box;
+    Done done = std::move(c.done);
+    c.done = nullptr;
     end_capture(); // `c` is gone from here on
 
     if (mode == TETRA_SHELL_V1_SCREENSHOT_MODE_REGION) {
         picker_ = std::make_unique<RegionPicker>(
             shell_, output, std::move(image),
-            [this, serial](const Image& picked, std::optional<Rect> pixels) {
+            [this, serial, done = std::move(done)](const Image& picked, std::optional<Rect> pixels) {
                 if (pixels) {
-                    crop_and_save(picked, *pixels, serial);
+                    crop_and_save(picked, *pixels, serial, done);
+                } else if (done) {
+                    done(std::nullopt);
                 }
                 close_picker();
             });
@@ -525,7 +570,7 @@ void Screenshots::captured(Capture& c) {
                       .width = static_cast<int>(std::lround(box.width * ratio)),
                       .height = static_cast<int>(std::lround(box.height * ratio))};
     }
-    crop_and_save(image, pixels, serial);
+    crop_and_save(image, pixels, serial, std::move(done));
 }
 
 void Screenshots::close_picker() {
@@ -536,12 +581,15 @@ void Screenshots::close_picker() {
     }
 }
 
-void Screenshots::crop_and_save(const Image& image, Rect r, uint32_t serial) {
+void Screenshots::crop_and_save(const Image& image, Rect r, uint32_t serial, Done done) {
     r.x = std::clamp(r.x, 0, image.width);
     r.y = std::clamp(r.y, 0, image.height);
     r.width = std::min(r.width, image.width - r.x);
     r.height = std::min(r.height, image.height - r.y);
     if (r.width <= 0 || r.height <= 0) {
+        if (done) {
+            done(std::nullopt);
+        }
         return;
     }
     const int stride = r.width * 4;
@@ -560,6 +608,9 @@ void Screenshots::crop_and_save(const Image& image, Rect r, uint32_t serial) {
     cairo_surface_destroy(surface);
     if (status != CAIRO_STATUS_SUCCESS) {
         std::println(stderr, "tetra-shell: screenshot: PNG encoding failed");
+        if (done) {
+            done(std::nullopt);
+        }
         return;
     }
 
@@ -576,18 +627,27 @@ void Screenshots::crop_and_save(const Image& image, Rect r, uint32_t serial) {
         std::println(stderr, "tetra-shell: screenshot: cannot write {}", path.string());
     }
 
-    set_clipboard(png, serial);
+    // A picture for an app (the portal) is the app's business: not on the
+    // clipboard, but the notification still tells the user one was taken.
+    if (!done) {
+        set_clipboard(png, serial);
+    }
 
     if (Notifications* notifications = shell_.notifications()) {
         const std::string body =
-            saved ? std::format("{} · copied to the clipboard", path.filename().string())
-                  : std::string("Copied to the clipboard (saving failed)");
+            done    ? (saved ? std::format("{} · for an app", path.filename().string())
+                             : std::string("For an app (saving failed)"))
+            : saved ? std::format("{} · copied to the clipboard", path.filename().string())
+                    : std::string("Copied to the clipboard (saving failed)");
         notifications->post("Screenshot taken", body, saved ? path.string() : std::string(),
                             [path, saved] {
                                 if (saved) {
                                     spawn_detached({"xdg-open", path.string()});
                                 }
                             });
+    }
+    if (done) {
+        done(saved ? std::optional<fs::path>(path) : std::nullopt);
     }
 }
 

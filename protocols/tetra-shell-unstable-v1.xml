@@ -13,7 +13,7 @@
     Unstable: both sides are built from the same source tree.
   </description>
 
-  <interface name="tetra_shell_v1" version="4">
+  <interface name="tetra_shell_v1" version="5">
     <enum name="slot_state" bitfield="true">
       <entry name="focused" value="1" summary="a window in this slot has keyboard focus"/>
       <entry name="minimized" value="2" summary="every window in this slot is minimized"/>
@@ -111,5 +111,17 @@
       <arg name="width" type="int"/>
       <arg name="height" type="int"/>
     </event>
+
+    <!-- version 5 -->
+
+    <request name="take_screenshot" since="5">
+      <description summary="ask for a screenshot">
+        For the screenshot portal. The compositor answers with a
+        screenshot event exactly as for the Print key in this mode ("output":
+        the output under the pointer, "window": the focused window), or
+        with nothing if there is no output to capture.
+      </description>
+      <arg name="mode" type="uint" enum="screenshot_mode"/>
+    </request>
   </interface>
 </protocol>

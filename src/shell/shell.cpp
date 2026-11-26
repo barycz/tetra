@@ -83,7 +83,7 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
     };
     osd_ = std::make_unique<Osd>(*this);
 
-    protocol_ = static_cast<tetra_shell_v1*>(app_.bind_global(&tetra_shell_v1_interface, 4));
+    protocol_ = static_cast<tetra_shell_v1*>(app_.bind_global(&tetra_shell_v1_interface, 5));
     if (protocol_ != nullptr) {
         tetra_shell_v1_add_listener(protocol_, &ShellListener::listener, this);
     } else {
@@ -132,6 +132,11 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
             std::println(stderr, "tetra-shell: notifications disabled: {}", e.what());
         }
         try {
+            service_ = std::make_unique<ShellService>(*this, dbus_->connection());
+        } catch (const sdbus::Error& e) {
+            std::println(stderr, "tetra-shell: org.tetra.Shell disabled (no portal screenshots): {}", e.what());
+        }
+        try {
             sni_ = std::make_unique<SniTray>(app_, dbus_->connection());
             sni_->on_changed = [this] { redraw_bars(); };
         } catch (const sdbus::Error& e) {
@@ -158,6 +163,9 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
 
 Shell::~Shell() {
     tray_menu_.reset();
+    // Answers a pending portal screenshot: before the bus goes.
+    screenshots_.reset();
+    service_.reset();
     sni_.reset();
     notifications_.reset();
     polkit_.reset();
@@ -166,7 +174,6 @@ Shell::~Shell() {
     system_bus_.reset();
     dbus_.reset();
     osd_.reset();
-    screenshots_.reset();
     idle_.reset();
     lock_screen_.reset();
     volume_popup_.reset();
@@ -315,6 +322,15 @@ void Shell::activate_slot(std::size_t index) {
     if (protocol_ != nullptr) {
         tetra_shell_v1_activate_slot(protocol_, static_cast<uint32_t>(index));
     }
+}
+
+bool Shell::request_screenshot(uint32_t mode) {
+    if (protocol_ == nullptr ||
+        tetra_shell_v1_get_version(protocol_) < TETRA_SHELL_V1_TAKE_SCREENSHOT_SINCE_VERSION) {
+        return false;
+    }
+    tetra_shell_v1_take_screenshot(protocol_, mode);
+    return true;
 }
 
 void Shell::launch_slot(std::size_t index) {
