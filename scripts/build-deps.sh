@@ -3,23 +3,30 @@
 #
 # Debian 13 ships older wayland/libdrm/pixman/xkbcommon/wayland-protocols than
 # wlroots 0.20 needs, so we build pinned versions ourselves. tetra binaries find
-# them through RPATH; the system copies are left untouched.
+# them through RPATH; the system copies are left untouched. Packages
+# (TETRA_BUNDLE_DEPS) ship the same libraries in a private directory.
 #
-# Usage: scripts/build-deps.sh [--clean] [--debug]
+# Usage: scripts/build-deps.sh [--clean] [--debug] [--dir DIR]
+#   --dir DIR   build in DIR/{src,build,prefix} instead of .deps (packaging)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-prefix="$root/.deps/prefix"
-builddir="$root/.deps/build"
+deps="$root/.deps"
 buildtype=release
+clean=0
 
-for arg in "$@"; do
-    case "$arg" in
-        --clean) rm -rf "$root/.deps" ;;
+while (($#)); do
+    case "$1" in
+        --clean) clean=1 ;;
         --debug) buildtype=debugoptimized ;;
-        *) echo "unknown option: $arg" >&2; exit 2 ;;
+        --dir) deps="$(realpath -m "${2:?--dir needs a directory}")"; shift ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
+    shift
 done
+((clean)) && rm -rf "$deps"
+prefix="$deps/prefix"
+builddir="$deps/build"
 
 if [[ ! -f "$root/third_party/wlroots/meson.build" ]]; then
     git -C "$root" submodule update --init --recursive
@@ -27,12 +34,13 @@ fi
 
 export PKG_CONFIG_PATH="$prefix/lib/pkgconfig:$prefix/share/pkgconfig:$prefix/lib/x86_64-linux-gnu/pkgconfig"
 export PATH="$prefix/bin:$PATH"
-# Every vendored lib resolves its own deps from the prefix first, so e.g.
-# libwlroots never picks up the older system libdrm.
-export LDFLAGS="-Wl,-rpath,$prefix/lib ${LDFLAGS:-}"
+# Every vendored lib resolves its own deps next to itself first, so e.g.
+# libwlroots never picks up the older system libdrm, wherever they are
+# installed (.deps/prefix/lib, or a package's private directory).
+export LDFLAGS="-Wl,-rpath,\$ORIGIN ${LDFLAGS:-}"
 
 # Dependencies with patches in patches/<name>/ are built from a patched
-# export in .deps/src/<name>; the submodule checkout itself stays pristine.
+# copy in <dir>/src/<name>; the submodule checkout itself stays pristine.
 source_dir() {
     local name="$1"
     local patches=("$root/patches/$name"/*.patch)
@@ -40,9 +48,9 @@ source_dir() {
         echo "$root/third_party/$name"
         return
     fi
-    local dest="$root/.deps/src/$name"
+    local dest="$deps/src/$name"
     rm -rf "$dest" && mkdir -p "$dest"
-    git -C "$root/third_party/$name" archive HEAD | tar -x -C "$dest"
+    tar -C "$root/third_party/$name" --exclude=.git -cf - . | tar -x -C "$dest"
     for patch in "${patches[@]}"; do
         patch -d "$dest" -p1 --quiet --forward <"$patch" >&2
     done

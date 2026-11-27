@@ -2,3 +2,14 @@
 /.deps/
 /.cache/
 /compile_commands.json
+# dpkg-buildpackage run in the tree (scripts/build-deb.sh builds in a copy under build/deb)
+/obj-*/
+/debian/.debhelper/
+/debian/deps/
+/debian/tetra/
+/debian/tetra-dbgsym/
+/debian/tmp/
+/debian/files
+/debian/*.substvars
+/debian/*.debhelper.log
+/debian/debhelper-build-stamp

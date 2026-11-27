@@ -206,6 +206,27 @@ wlroots' own meson wraps are not used: they track `HEAD`.
 | wlroots | 0.20.2 (gles2 renderer, drm+libinput backends, Xwayland) |
 | imgui | v1.93.0 |
 
+### Packages
+
+tetra is installed from a package, not with `cmake --install` (`debian/`,
+built by `scripts/build-deb.sh`; an Arch PKGBUILD can follow the same
+pattern). The package build runs `scripts/build-deps.sh --dir debian/deps`
+and configures with `-DTETRA_BUNDLE_DEPS=ON`, which installs the vendored
+runtime libraries (sonames only: no headers, `.pc` files or
+wayland-scanner) into a private `<libdir>/tetra` and points the installed
+binaries' DT_RPATH there instead of at the build prefix. The vendored
+libraries carry `RUNPATH=$ORIGIN`, so they find each other wherever they
+are. Nothing outside tetra loads them, so they need no shlibs entry
+(`dh_makeshlibs -X`), and `dh_shlibdeps -l` turns everything they and
+tetra link from the system into package dependencies. Runtime needs that
+linking does not show are listed by hand in `debian/control`: Inter, the
+icon themes, xkb-data, the D-Bus user session; Xwayland, the portal
+frontend, pipewire-pulse and polkitd are recommended, greetd suggested.
+The package build runs the unit tests; the headless scenarios need a
+session: `scripts/run-tests.sh installed` runs them all against the
+installed package (`run-headless.sh -i`; the test helpers come from the
+debug build).
+
 ### wlroots from C++
 
 wlroots headers use C99 `[static N]` array parameters and fields named
@@ -701,7 +722,8 @@ makes everything N times slower, to look at them and for tests.
 - The seat always advertises a keyboard, so clients hold a `wl_keyboard`
   before any (virtual or hot-plugged) keyboard appears.
 - **Real session:** from a spare TTY, through the `wayland-sessions` entry
-  in GDM, or with greetd and tetra's own login screen.
+  in GDM, or with greetd and tetra's own login screen; installed from the
+  package (`scripts/build-deb.sh`, see Packages).
 - Presets: `debug` (GCC, -Werror), `clang`, `asan` (ASan + UBSan), `release`.
 
 ## Roadmap

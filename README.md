@@ -28,6 +28,28 @@ cmake --build --preset debug
 
 Other presets: `clang`, `asan` (ASan + UBSan), `release`.
 
+## Installing (Debian package)
+
+tetra installs as an ordinary package rather than with `cmake --install`:
+
+```bash
+scripts/build-deb.sh --install-deps   # -> build/deb/tetra_<version>_amd64.deb
+sudo apt install ./build/deb/tetra_*_amd64.deb
+```
+
+`build-deb.sh` builds from a clean copy of the sources (uncommitted changes
+included) and names each build `<version>+git<date>.<commit>`, so a newer
+build upgrades the installed one; `--release` keeps the version in
+`debian/changelog`. The package brings its own wlroots 0.20 and the newer
+wayland, libdrm, pixman and libxkbcommon in `/usr/lib/x86_64-linux-gnu/tetra`,
+used only by tetra's programs. `sudo apt remove tetra` takes it all away
+again (`purge` also removes `/etc/pam.d/tetra`). `scripts/run-tests.sh installed`
+runs the headless scenarios against the installed package.
+
+It puts tetra into GDM's session menu, its apps into other desktops' app
+lists, and the portal backend where xdg-desktop-portal finds it (used only
+in a tetra session).
+
 ## Running
 
 `tetra` starts `tetra-shell` itself (and restarts it if it crashes).
@@ -65,17 +87,17 @@ printf '[Desktop Entry]\nName=tetra (dev build)\nExec=%s\nType=Application\n' \
   "$PWD/build/debug/src/compositor/tetra" | sudo tee /usr/share/wayland-sessions/tetra-dev.desktop
 ```
 
-**Login screen** (greetd): `sudo cmake --install build/release`, then use
-`data/greetd/config.toml` as `/etc/greetd/config.toml`
+**Login screen** (greetd): install the package and greetd, then use
+`/usr/share/tetra/greetd/config.toml` as `/etc/greetd/config.toml`
 (`command = "tetra --greeter"`) and enable greetd instead of GDM
 (`sudo systemctl disable gdm && sudo systemctl enable greetd`). It offers
 the sessions in `/usr/share/wayland-sessions` (tetra's own is installed
 there).
 
 **Portal backend** (GTK/Qt/Firefox use tetra's file dialog, screenshots,
-colour picker, screen sharing and dark/light setting). `sudo cmake --install build/release` installs it
-with everything else. To use it from a dev build instead (the `.portal` file
-must be in the system directory):
+colour picker, screen sharing and dark/light setting). The package installs
+it. To use it from a dev build instead (the `.portal` file must be in the
+system directory):
 
 ```bash
 sudo install -Dm644 data/portal/tetra.portal /usr/share/xdg-desktop-portal/portals/tetra.portal
@@ -134,7 +156,8 @@ data/             files installed alongside (PAM service, desktop entries, sessi
                   config, portal files)
 tests/unit/       unit tests (config editing, monitor, portal, greeter, desktop files)
 protocols/        tetra's private Wayland protocol (compositor <-> shell)
-scripts/          deps, vendored build, headless runner, test runner
+scripts/          deps, vendored build, headless runner, test runner, .deb build
+debian/           Debian packaging (scripts/build-deb.sh)
 tests/headless/   scripted headless scenarios
 tests/tools/      tetra-sendkeys, tetra-pointer, tetra-tray-item, polkit-request, fake-polkit-helper,
                   portal-request, tetra-foreign-parent, fake-greetd, fake-logind

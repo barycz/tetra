@@ -1,0 +1,7 @@
+tetra (0.1.0) unstable; urgency=medium
+
+  * First package: compositor, shell, settings, terminal, system monitor,
+    portal backend and login screen, with private builds of wlroots 0.20
+    and its newer dependencies.
+
+ -- barycz <barycz@users.noreply.github.com>  Fri, 27 Nov 2026 12:00:00 +0100

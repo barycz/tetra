@@ -1,0 +1,38 @@
+#!/usr/bin/make -f
+# Builds the vendored libraries (scripts/build-deps.sh) into debian/deps,
+# then tetra against them; the package ships them in
+# /usr/lib/<triplet>/tetra (TETRA_BUNDLE_DEPS), where the programs' RPATH
+# points.
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+include /usr/share/dpkg/architecture.mk
+
+DEPS := $(CURDIR)/debian/deps
+PRIVATE_LIBDIR := usr/lib/$(DEB_HOST_MULTIARCH)/tetra
+
+%:
+	dh $@ --buildsystem=cmake+ninja
+
+override_dh_auto_configure:
+	scripts/build-deps.sh --dir $(DEPS)
+	dh_auto_configure -- \
+		-DTETRA_DEPS_PREFIX=$(DEPS)/prefix \
+		-DTETRA_BUNDLE_DEPS=ON
+
+# The unit tests (the headless scenarios need a session to run in).
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	obj-$(DEB_HOST_GNU_TYPE)/tests/unit/tetra-unit-tests
+endif
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf $(DEPS)
+
+# The private libraries are part of this package, not a public ABI.
+override_dh_makeshlibs:
+	dh_makeshlibs -X$(PRIVATE_LIBDIR)
+
+override_dh_shlibdeps:
+	dh_shlibdeps -l$(CURDIR)/debian/tetra/$(PRIVATE_LIBDIR)

@@ -42,6 +42,8 @@ packages=(
     wlr-randr pipewire pipewire-pulse wireplumber pulseaudio-utils
     # portal tests: a scripted portal client (Python GIO), a GTK 4 app
     python3-gi gir1.2-glib-2.0 zenity gstreamer1.0-pipewire gstreamer1.0-tools
+    # packages (scripts/build-deb.sh)
+    debhelper lintian
 )
 
 sudo apt-get update -qq

@@ -21,11 +21,27 @@ set(ENV{PKG_CONFIG_PATH}
 # Old-style DT_RPATH (not RUNPATH) so it also applies to the dependencies of
 # our dependencies: the whole process uses the prefix copies of libwayland,
 # libdrm, pixman and xkbcommon instead of mixing them with older system ones.
-# Build and install trees use the same path, so skip CMake's install-time
-# rewriting (and the ':' padding it adds, which ld.so reads as "cwd").
-set(CMAKE_INSTALL_RPATH "${TETRA_DEPS_PREFIX}/lib")
-set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
 add_link_options("LINKER:--disable-new-dtags")
+
+# Packages (.deb, later Arch) ship the vendored libraries in a private
+# directory, <libdir>/tetra, which the installed binaries use instead of the
+# prefix; nothing else on the system sees them.
+option(TETRA_BUNDLE_DEPS "Install the vendored libraries into <libdir>/tetra (packages)" OFF)
+include(GNUInstallDirs)
+if(TETRA_BUNDLE_DEPS)
+    set(TETRA_PRIVATE_LIBDIR "${CMAKE_INSTALL_FULL_LIBDIR}/tetra")
+    set(CMAKE_BUILD_RPATH "${TETRA_DEPS_PREFIX}/lib") # for the unit tests
+    set(CMAKE_INSTALL_RPATH "${TETRA_PRIVATE_LIBDIR}")
+    # Runtime files only (sonames and their targets), no headers or .pc files.
+    file(GLOB TETRA_PRIVATE_LIBS "${TETRA_DEPS_PREFIX}/lib/lib*.so.*"
+                                 "${TETRA_DEPS_PREFIX}/lib/libwlroots-*.so")
+    install(FILES ${TETRA_PRIVATE_LIBS} DESTINATION "${TETRA_PRIVATE_LIBDIR}")
+else()
+    # Build and install trees use the same path, so skip CMake's install-time
+    # rewriting (and the ':' padding it adds, which ld.so reads as "cwd").
+    set(CMAKE_INSTALL_RPATH "${TETRA_DEPS_PREFIX}/lib")
+    set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
+endif()
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WLROOTS REQUIRED IMPORTED_TARGET wlroots-0.20)

@@ -1,0 +1,89 @@
+Source: tetra
+Section: x11
+Priority: optional
+Maintainer: barycz <barycz@users.noreply.github.com>
+Rules-Requires-Root: no
+Standards-Version: 4.7.2
+Homepage: https://github.com/barycz/tetra
+Vcs-Git: https://github.com/barycz/tetra.git
+Vcs-Browser: https://github.com/barycz/tetra
+Build-Depends:
+ debhelper-compat (= 13),
+ cmake (>= 3.28),
+ ninja-build,
+ meson,
+ pkgconf,
+ bison,
+ libffi-dev,
+ libexpat1-dev,
+ libxml2-dev,
+ xkb-data,
+ libudev-dev,
+ libinput-dev,
+ libseat-dev,
+ libdisplay-info-dev,
+ libliftoff-dev,
+ hwdata,
+ libgbm-dev,
+ libegl-dev,
+ libgles-dev,
+ liblcms2-dev,
+ xwayland,
+ libxcb1-dev,
+ libxcb-composite0-dev,
+ libxcb-ewmh-dev,
+ libxcb-icccm4-dev,
+ libxcb-render0-dev,
+ libxcb-res0-dev,
+ libxcb-xfixes0-dev,
+ libxcb-errors-dev,
+ libcairo2-dev,
+ libpango1.0-dev,
+ nlohmann-json3-dev,
+ libfreetype-dev,
+ libfontconfig-dev,
+ librsvg2-dev,
+ libsdbus-c++-dev,
+ libpam0g-dev,
+ libpulse-dev,
+ libvterm-dev,
+ libpipewire-0.3-dev,
+
+Package: tetra
+Architecture: linux-any
+Depends:
+ ${shlibs:Depends},
+ ${misc:Depends},
+ fonts-inter,
+ xkb-data,
+ hicolor-icon-theme,
+ adwaita-icon-theme,
+ dbus-user-session | dbus-x11,
+Recommends:
+ xwayland,
+ xdg-desktop-portal,
+ xdg-desktop-portal-gtk,
+ pipewire-pulse,
+ polkitd,
+ shared-mime-info,
+Suggests:
+ greetd,
+Description: sleek, minimal Wayland desktop
+ tetra is a desktop environment built on a wlroots compositor, with the
+ shell and apps drawn with Dear ImGui and one JSON configuration file with
+ live reload.
+ .
+ This package contains:
+  * tetra, the compositor (window decorations, snap zones, window memory,
+    animations, Xwayland);
+  * tetra-shell: the F-key task bar, app launcher with power menu, tray,
+    notifications, volume and brightness OSD, lock screen, polkit agent
+    and screenshots;
+  * tetra-settings, tetra-terminal and tetra-monitor;
+  * tetra-portal, an xdg-desktop-portal backend (file chooser, screenshots,
+    colour picker, screen sharing, settings);
+  * tetra-greeter, a login screen for greetd.
+ .
+ It brings its own builds of wlroots 0.20 and of the newer wayland, libdrm,
+ pixman and libxkbcommon that wlroots needs, in /usr/lib/<triplet>/tetra,
+ used by tetra's programs only.

@@ -9,6 +9,8 @@
 #   -n COUNT   number of outputs      (default: 1; side by side)
 #   -w SECS    wait before screenshot (default: 2)
 #   -p PRESET  build preset to run    (default: debug)
+#   -i         run the installed package (/usr/bin/tetra and its apps);
+#              the test helpers still come from PRESET's build
 #   -c FILE    tetra config file      (default: an empty config, i.e. defaults)
 #   -a         a private sound server (PipeWire, no hardware) with two
 #              outputs and a microphone, instead of the simulated device
@@ -36,8 +38,9 @@ debug=0
 sound=0
 greeter=0
 logind=0
+installed=0
 
-while getopts "o:s:n:w:p:c:agldh" opt; do
+while getopts "o:s:n:w:p:c:agldih" opt; do
     case "$opt" in
         o) out="$OPTARG" ;;
         s) size="$OPTARG" ;;
@@ -49,16 +52,29 @@ while getopts "o:s:n:w:p:c:agldh" opt; do
         g) greeter=1 ;;
         l) logind=1 ;;
         d) debug=1 ;;
-        *) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+        i) installed=1 ;;
+        *) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
     esac
 done
 shift $((OPTIND - 1))
 command="$*"
 
-bin="$root/build/$preset/src/compositor/tetra"
-if [[ ! -x "$bin" ]]; then
-    echo "error: $bin not found; build with: cmake --build --preset $preset" >&2
-    exit 1
+if ((installed)); then
+    bin=/usr/bin/tetra
+    portal=/usr/libexec/tetra-portal
+    apps="" # /usr/bin is on PATH already
+    if [[ ! -x "$bin" ]]; then
+        echo "error: $bin not found; install the package (scripts/build-deb.sh)" >&2
+        exit 1
+    fi
+else
+    bin="$root/build/$preset/src/compositor/tetra"
+    portal="$root/build/$preset/src/portal/tetra-portal"
+    apps="$root/build/$preset/src/apps/settings:$root/build/$preset/src/apps/terminal:$root/build/$preset/src/apps/monitor:"
+    if [[ ! -x "$bin" ]]; then
+        echo "error: $bin not found; build with: cmake --build --preset $preset" >&2
+        exit 1
+    fi
 fi
 
 mkdir -p "$(dirname "$out")"
@@ -73,7 +89,7 @@ export TETRA_OUTPUT_SIZE="$size"
 export LSAN_OPTIONS="${LSAN_OPTIONS:-suppressions=$root/scripts/lsan.supp:print_suppressions=0}"
 # Test helpers for the scenario scripts: built ones (tetra-sendkeys) and
 # scripts (polkit-request); also the apps (tetra-settings).
-export PATH="$root/build/$preset/tests/tools:$root/tests/tools:$root/build/$preset/src/apps/settings:$root/build/$preset/src/apps/terminal:$root/build/$preset/src/apps/monitor:$PATH"
+export PATH="$root/build/$preset/tests/tools:$root/tests/tools:$apps$PATH"
 
 # The lock screen must never check (or need) a real password: everything
 # runs under pam_wrapper (it only intercepts PAM calls, i.e. the shell's),
@@ -123,7 +139,7 @@ args=(-c "$config")
 # files. xdg-desktop-portal uses tetra's backend only.
 mkdir -p "$runtime/data/dbus-1/services" "$runtime/portals" "$runtime/config" "$runtime/home"
 printf '[D-BUS Service]\nName=org.freedesktop.impl.portal.desktop.tetra\nExec=%s\n' \
-    "$root/build/$preset/src/portal/tetra-portal" \
+    "$portal" \
     >"$runtime/data/dbus-1/services/org.freedesktop.impl.portal.desktop.tetra.service"
 cp "$root/data/portal/tetra.portal" "$runtime/portals/"
 # With XDG_DESKTOP_PORTAL_DIR set, the configuration is read from there too.
