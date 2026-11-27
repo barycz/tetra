@@ -390,7 +390,7 @@ void Settings::choose_picture() {
     options.mode = portal::DialogOptions::Mode::Open;
     options.title = "Choose a Background Picture";
     options.accept_label = "Choose";
-    options.filters = {portal::Filter{.name = "Pictures", .rules = {{1, "image/*"}}},
+    options.filters = {portal::Filter{.name = "Pictures", .rules = {{1, "image/jpeg"}, {1, "image/png"}}},
                        portal::Filter{.name = "All files", .rules = {}}};
     const char* home = std::getenv("HOME");
     const fs::path home_dir = home != nullptr ? fs::path(home) : fs::path("/");

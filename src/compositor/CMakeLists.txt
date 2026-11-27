@@ -1,7 +1,13 @@
 pkg_check_modules(PANGOCAIRO REQUIRED IMPORTED_TARGET pangocairo cairo)
 pkg_check_modules(LIBINPUT REQUIRED IMPORTED_TARGET libinput)
 pkg_check_modules(LIBDRM REQUIRED IMPORTED_TARGET libdrm)
-pkg_check_modules(GDK_PIXBUF REQUIRED IMPORTED_TARGET gdk-pixbuf-2.0)
+pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
+pkg_check_modules(LIBJPEG REQUIRED IMPORTED_TARGET libjpeg)
+
+# Desktop pictures (JPEG, PNG): a library of its own for the unit tests.
+add_library(tetra_picture STATIC picture.cpp)
+target_include_directories(tetra_picture PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tetra_picture PUBLIC PkgConfig::CAIRO PRIVATE PkgConfig::LIBJPEG tetra_warnings)
 
 add_executable(tetra
     animation.cpp
@@ -46,7 +52,7 @@ target_link_libraries(tetra PRIVATE
     PkgConfig::PANGOCAIRO
     PkgConfig::LIBINPUT
     PkgConfig::LIBDRM
-    PkgConfig::GDK_PIXBUF
+    tetra_picture
 )
 
 install(TARGETS tetra)

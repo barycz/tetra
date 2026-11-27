@@ -23,7 +23,7 @@ packages=(
     libxcb-errors-dev
 
     # compositor: decorations (title text), config, background pictures
-    libcairo2-dev libpango1.0-dev nlohmann-json3-dev libgdk-pixbuf-2.0-dev
+    libcairo2-dev libpango1.0-dev nlohmann-json3-dev libjpeg-dev
 
     # toolkit: fonts for ImGui, icons (PNG via cairo, SVG via librsvg)
     libfreetype-dev libfontconfig-dev fonts-inter librsvg2-dev

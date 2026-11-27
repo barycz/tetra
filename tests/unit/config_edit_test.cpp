@@ -426,11 +426,13 @@ void desktop_background() {
 }
 
 int greeter_tests(); // greeter_test.cpp
+int picture_tests(); // picture_test.cpp
 
 int main() {
     failures += monitor_tests();
     failures += portal_tests();
     failures += greeter_tests();
+    failures += picture_tests();
     replace_keeps_comments();
     insert_after_trailing_comment();
     insert_into_inline_object();

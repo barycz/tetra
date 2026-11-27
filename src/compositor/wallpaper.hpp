@@ -21,9 +21,9 @@ class Server;
 // mark drawn for each display in the accent colour, a picture, or nothing
 // but the background colour (the outputs' scene rect).
 //
-// Pictures are decoded (gdk-pixbuf) on a worker thread, scaled down to what
-// the largest display needs, so a big photo never stalls input; until it is
-// ready the colour shows.
+// Pictures (JPEG or PNG, picture.hpp) are decoded on a worker thread, scaled
+// down to what the largest display needs, so a big photo never stalls input;
+// until it is ready the colour shows.
 class Wallpaper {
 public:
     explicit Wallpaper(Server& server);

@@ -22,5 +22,9 @@ find_package(sdbus-c++ 2 REQUIRED)
 add_executable(tetra-tray-item tray_item.cpp)
 target_link_libraries(tetra-tray-item PRIVATE SDBusCpp::sdbus-c++ tetra_warnings)
 
+pkg_check_modules(PNG_TO_JPEG_DEPS REQUIRED IMPORTED_TARGET cairo libjpeg)
+add_executable(tetra-png-to-jpeg png_to_jpeg.cpp)
+target_link_libraries(tetra-png-to-jpeg PRIVATE PkgConfig::PNG_TO_JPEG_DEPS tetra_warnings)
+
 add_executable(tetra-foreign-parent foreign_parent.cpp)
 target_link_libraries(tetra-foreign-parent PRIVATE tetra_toolkit tetra_warnings)

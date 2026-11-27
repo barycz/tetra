@@ -163,7 +163,8 @@ scripts/          deps, missing-library build, headless runner, test runner, .de
 debian/           Debian packaging (scripts/build-deb.sh)
 tests/headless/   scripted headless scenarios
 tests/tools/      tetra-sendkeys, tetra-pointer, tetra-tray-item, polkit-request, fake-polkit-helper,
-                  portal-request, tetra-foreign-parent, fake-greetd, fake-logind
+                  portal-request, tetra-foreign-parent, fake-greetd, fake-logind, make-test-picture,
+                  tetra-png-to-jpeg
 third_party/      pinned submodules (wlroots, wayland, imgui, ...)
 docs/             design notes, configuration reference
 ```

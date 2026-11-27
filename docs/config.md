@@ -148,7 +148,7 @@ Built-in layouts: `none`, `columns-2`, `columns-3`, `priority` (wide middle),
 | `theme.animations` | bool | `true` | yes |
 | `desktop.wallpaper` | `"logo"`, `"picture"` or `"color"` | `"logo"` | yes |
 | `desktop.background` | colour | `"#1b1d22"` | yes |
-| `desktop.picture` | absolute path, or starting with `~/` | none | yes |
+| `desktop.picture` | a JPEG or PNG: absolute path, or starting with `~/` | none | yes |
 | `desktop.picture_fit` | `"fill"`, `"fit"` or `"center"` | `"fill"` | yes |
 | `windows.titlebar_height` | integer, 16–96 | `32` | yes |
 | `windows.border_width` | integer, 0–16 | `1` | yes |

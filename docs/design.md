@@ -448,14 +448,16 @@ scale or what it shows changes.
   it follows both live; the same geometry and gaps as the launcher's mark
   (`ui::draw_mark`). No glow behind it: a gradient that faint bands into
   rings in 8 bits.
-- **Picture**: any format gdk-pixbuf reads (JPEG, PNG, WebP, JPEG XL, AVIF,
-  SVG, ...), turned upright by its EXIF orientation. `fill` covers the
-  display (cropping), `fit` shows all of it with the colour around, `center`
-  puts it at its own size in the middle. It is decoded on a worker thread,
-  scaled down to what the largest display needs (decoding stays out of the
-  frame loop even for a 50-megapixel photo); the colour shows until it is
-  ready, and stays (with an error in the log) when the file is missing or
-  not a picture. A larger display decodes it again.
+- **Picture**: a JPEG (libjpeg-turbo) or PNG (cairo's own reader), turned
+  upright by a JPEG's EXIF orientation (`src/compositor/picture.*`; no
+  gdk-pixbuf, so no loader modules to depend on). `fill` covers the display
+  (cropping), `fit` shows all of it with the colour around, `center` puts it
+  at its own size in the middle. It is decoded on a worker thread, scaled
+  down to what the largest display needs (a JPEG much larger than that is
+  decoded at 1/2, 1/4 or 1/8 directly, so a 50-megapixel photo is quick and
+  stays out of the frame loop); the colour shows until it is ready, and
+  stays (with an error in the log) when the file is missing or not a JPEG or
+  PNG. A larger display decodes it again.
 - **Colour**: the colour alone (a scene rect, no buffer).
 - Settings shows the three as tiles previewing each in the current colours;
   "Picture" opens tetra's file chooser (the portal's dialog, linked in) in

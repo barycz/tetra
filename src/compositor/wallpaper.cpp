@@ -3,9 +3,8 @@
 #include "cairo_buffer.hpp"
 #include "log.hpp"
 #include "output.hpp"
+#include "picture.hpp"
 #include "server.hpp"
-
-#include <gdk-pixbuf/gdk-pixbuf.h>
 
 #include <algorithm>
 #include <array>
@@ -175,42 +174,6 @@ void draw_picture(cairo_t* cr, int width, int height, cairo_surface_t* image, Fi
     cairo_rectangle(cr, 0, 0, iw, ih);
     cairo_fill(cr);
     cairo_restore(cr);
-}
-
-// Straight RGB(A) bytes to cairo's premultiplied native-endian ARGB32.
-cairo_surface_t* to_cairo(GdkPixbuf* pixbuf, std::string& error) {
-    const int width = gdk_pixbuf_get_width(pixbuf);
-    const int height = gdk_pixbuf_get_height(pixbuf);
-    const int channels = gdk_pixbuf_get_n_channels(pixbuf);
-    const int stride = gdk_pixbuf_get_rowstride(pixbuf);
-    const bool alpha = gdk_pixbuf_get_has_alpha(pixbuf) != FALSE;
-    if (gdk_pixbuf_get_bits_per_sample(pixbuf) != 8 || channels < 3) {
-        error = "unsupported pixel format";
-        return nullptr;
-    }
-    cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
-    if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
-        cairo_surface_destroy(surface);
-        error = "out of memory";
-        return nullptr;
-    }
-    cairo_surface_flush(surface);
-    const guchar* src = gdk_pixbuf_read_pixels(pixbuf);
-    unsigned char* dst = cairo_image_surface_get_data(surface);
-    const int dst_stride = cairo_image_surface_get_stride(surface);
-    for (int y = 0; y < height; ++y) {
-        const guchar* in = src + (static_cast<std::ptrdiff_t>(y) * stride);
-        unsigned char* out = dst + (static_cast<std::ptrdiff_t>(y) * dst_stride);
-        for (int x = 0; x < width; ++x, in += channels, out += 4) {
-            const std::uint32_t a = alpha ? in[3] : 255U;
-            const auto premultiply = [a](std::uint32_t c) { return ((c * a) + 127U) / 255U; };
-            const std::uint32_t pixel =
-                (a << 24U) | (premultiply(in[0]) << 16U) | (premultiply(in[1]) << 8U) | premultiply(in[2]);
-            std::memcpy(out, &pixel, sizeof pixel);
-        }
-    }
-    cairo_surface_mark_dirty(surface);
-    return surface;
 }
 
 } // namespace
@@ -390,38 +353,21 @@ cairo_surface_t* Wallpaper::load(const Request& request, std::string& error) {
         error = "no such file";
         return nullptr;
     }
-    int width = 0;
-    int height = 0;
-    if (gdk_pixbuf_get_file_info(request.path.c_str(), &width, &height) == nullptr || width <= 0 || height <= 0) {
-        error = "not a picture gdk-pixbuf can read (or not readable)";
-        return nullptr;
-    }
-    // Only as large as the largest display needs (never larger than it is).
-    double s = 1;
-    if (request.fit == Fit::Fill) {
-        s = std::max(static_cast<double>(request.width) / width, static_cast<double>(request.height) / height);
-    } else if (request.fit == Fit::Fit) {
-        s = std::min(static_cast<double>(request.width) / width, static_cast<double>(request.height) / height);
-    }
-    s = std::min(s, 1.0);
-    GError* gerror = nullptr;
-    GdkPixbuf* pixbuf = gdk_pixbuf_new_from_file_at_scale(
-        request.path.c_str(), std::max(1, static_cast<int>(std::lround(width * s))),
-        std::max(1, static_cast<int>(std::lround(height * s))), FALSE, &gerror);
-    if (pixbuf == nullptr) {
-        error = gerror != nullptr ? gerror->message : "cannot load";
-        g_clear_error(&gerror);
-        return nullptr;
-    }
-    GdkPixbuf* oriented = gdk_pixbuf_apply_embedded_orientation(pixbuf); // camera EXIF rotation
-    g_object_unref(pixbuf);
-    if (oriented == nullptr) {
-        error = "cannot rotate";
-        return nullptr;
-    }
-    cairo_surface_t* surface = to_cairo(oriented, error);
-    g_object_unref(oriented);
-    return surface;
+    // Only as large as the largest display needs (load_picture never enlarges).
+    const auto scale_for = [&request](int width, int height) {
+        const double sx = static_cast<double>(request.width) / width;
+        const double sy = static_cast<double>(request.height) / height;
+        switch (request.fit) {
+        case Fit::Fill:
+            return std::max(sx, sy);
+        case Fit::Fit:
+            return std::min(sx, sy);
+        case Fit::Center:
+            break;
+        }
+        return 1.0;
+    };
+    return load_picture(request.path, scale_for, error);
 }
 
 } // namespace tetra
