@@ -1,5 +1,6 @@
 pkg_check_modules(PANGOCAIRO REQUIRED IMPORTED_TARGET pangocairo cairo)
 pkg_check_modules(LIBINPUT REQUIRED IMPORTED_TARGET libinput)
+pkg_check_modules(LIBDRM REQUIRED IMPORTED_TARGET libdrm)
 
 add_executable(tetra
     animation.cpp
@@ -42,6 +43,7 @@ target_link_libraries(tetra PRIVATE
     PkgConfig::XKBCOMMON
     PkgConfig::PANGOCAIRO
     PkgConfig::LIBINPUT
+    PkgConfig::LIBDRM
 )
 
 install(TARGETS tetra)

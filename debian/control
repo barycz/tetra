@@ -14,6 +14,11 @@ Build-Depends:
  meson,
  pkgconf,
  bison,
+ libwayland-dev,
+ wayland-protocols,
+ libdrm-dev,
+ libxkbcommon-dev,
+ libpixman-1-dev,
  libffi-dev,
  libexpat1-dev,
  libxml2-dev,
@@ -84,6 +89,7 @@ Description: sleek, minimal Wayland desktop
     colour picker, screen sharing, settings);
   * tetra-greeter, a login screen for greetd.
  .
- It brings its own builds of wlroots 0.20 and of the newer wayland, libdrm,
- pixman and libxkbcommon that wlroots needs, in /usr/lib/<triplet>/tetra,
- used by tetra's programs only.
+ Where the distribution lacks wlroots 0.20, or has older wayland, libdrm,
+ pixman or libxkbcommon than it needs (Debian 13), the package brings its
+ own builds of those in /usr/lib/<triplet>/tetra, used by tetra's programs
+ only.

@@ -20,10 +20,12 @@
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
+#include <string_view>
 #include <utility>
 
 #include <sys/wait.h>
 #include <unistd.h>
+#include <xf86drm.h>
 
 namespace tetra {
 
@@ -135,6 +137,45 @@ Server::~Server() {
     }
 }
 
+namespace {
+
+bool is_vmwgfx(int drm_fd) {
+    drmVersion* version = drmGetVersion(drm_fd);
+    const bool vmwgfx = version != nullptr && std::string_view(version->name, version->name_len) == "vmwgfx";
+    drmFreeVersion(version);
+    return vmwgfx;
+}
+
+} // namespace
+
+void Server::init_buffer_globals() {
+    // What wlr_renderer_init_wl_display() does (wl_shm, linux-dmabuf), but
+    // keeping the linux-dmabuf global to adjust it.
+    if (!wlr_renderer_init_wl_shm(renderer, display)) {
+        log::error("failed to create wl_shm");
+    }
+    const int drm_fd = wlr_renderer_get_drm_fd(renderer);
+    if (wlr_renderer_get_texture_formats(renderer, WLR_BUFFER_CAP_DMABUF) == nullptr || drm_fd < 0) {
+        return; // a software renderer: shared memory only
+    }
+    wlr_linux_dmabuf_v1* linux_dmabuf = wlr_linux_dmabuf_v1_create_with_renderer(display, 4, renderer);
+    if (linux_dmabuf == nullptr) {
+        log::error("failed to create linux-dmabuf; clients fall back to shared memory");
+        return;
+    }
+    // wlroots checks each client buffer by importing it into the GPU and
+    // releasing the handle again. vmwgfx (VMware/VirtualBox SVGA) imports
+    // PRIME buffers as TTM objects whose handle cannot be released that way,
+    // so the check refused every GPU client (Xwayland, Mesa EGL apps, our
+    // toolkit). There the buffer is accepted as it is; the renderer still
+    // fails cleanly on one it cannot import. Other drivers keep the check.
+    if (is_vmwgfx(drm_fd)) {
+        wlr_linux_dmabuf_v1_set_check_dmabuf_callback(
+            linux_dmabuf, [](wlr_dmabuf_attributes* /*attribs*/, void* /*data*/) { return true; }, nullptr);
+        log::info("vmwgfx: skipping linux-dmabuf import checks");
+    }
+}
+
 std::expected<void, std::string> Server::init() {
     load_config();
 
@@ -154,7 +195,7 @@ std::expected<void, std::string> Server::init() {
     if (renderer == nullptr) {
         return std::unexpected("failed to create renderer");
     }
-    wlr_renderer_init_wl_display(renderer, display);
+    init_buffer_globals();
     allocator = wlr_allocator_autocreate(backend, renderer);
     if (allocator == nullptr) {
         return std::unexpected("failed to create allocator");

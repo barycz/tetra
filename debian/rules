@@ -1,8 +1,9 @@
 #!/usr/bin/make -f
-# Builds the vendored libraries (scripts/build-deps.sh) into debian/deps,
-# then tetra against them; the package ships them in
-# /usr/lib/<triplet>/tetra (TETRA_BUNDLE_DEPS), where the programs' RPATH
-# points.
+# scripts/build-deps.sh builds what the system lacks of wlroots 0.20 and its
+# dependencies into debian/deps (on Debian 13: wlroots, wayland, libdrm,
+# pixman, libxkbcommon; nothing on forky), then tetra is built against those and the
+# system. The package ships the built ones in /usr/lib/<triplet>/tetra
+# (TETRA_BUNDLE_DEPS), where the programs' RPATH then points.
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 

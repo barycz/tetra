@@ -11,7 +11,7 @@ This document records decisions. Change it when a decision changes.
 
 | Area | Decision |
 |---|---|
-| Display server | Wayland compositor built on **wlroots** (pinned, vendored; currently 0.20.2) |
+| Display server | Wayland compositor built on **wlroots** 0.20 (the system's, or a pinned build where it lacks one) |
 | UI | **Dear ImGui** for the shell and every tetra app, through our own toolkit library |
 | Language | **C++23** (GCC 14 / Clang 19). No C++20 modules until CMake + GCC support matures |
 | Configuration | **JSON** (comments allowed), one tree under `~/.config/tetra/` |
@@ -189,32 +189,36 @@ terminal (libvterm), system monitor, portal backend.
 
 ## Dependencies
 
-Debian 13 is the development baseline. Its wayland, libdrm, pixman, xkbcommon
-and wayland-protocols are older than wlroots 0.20 needs, so those and wlroots
-itself are **git submodules pinned to release tags** under `third_party/`,
-built by `scripts/build-deps.sh` into `.deps/prefix`. Binaries use DT_RPATH to
-that prefix so the whole process uses one consistent copy of each library.
-wlroots' own meson wraps are not used: they track `HEAD`.
+tetra uses wlroots 0.20 and the libraries it needs from the system wherever
+the system has them new enough, unpatched. `scripts/build-deps.sh` builds
+only what is missing into `.deps/prefix`, from **git submodules pinned to
+release tags** under `third_party/` (wlroots' own meson wraps track `HEAD`):
+wlroots unless the system has 0.20, and each library the system has older
+than wlroots needs. Binaries use DT_RPATH to that prefix, so the whole
+process uses one consistent copy of each built library.
 
-| Submodule | Pin |
-|---|---|
-| wayland | 1.26.0 |
-| wayland-protocols | 1.50 |
-| libdrm | 2.4.134 (core library only) |
-| pixman | 0.46.4 |
-| libxkbcommon | 1.13.2 (uses system xkb-data) |
-| wlroots | 0.20.2 (gles2 renderer, drm+libinput backends, Xwayland) |
-| imgui | v1.93.0 |
+| Submodule | Pin | wlroots needs | Debian 13 | + backports | forky, Arch |
+|---|---|---|---|---|---|
+| wayland | 1.26.0 | ≥ 1.24 | 1.23.1: built | 1.26.0 | system |
+| wayland-protocols | 1.50 | ≥ 1.47 | 1.44: built | 1.47 | system |
+| libdrm | 2.4.134 (core library only) | ≥ 2.4.129 | 2.4.124: built | built | system |
+| pixman | 0.46.4 | ≥ 0.46 (pixman renderer) | 0.44.0: built | built | system |
+| libxkbcommon | 1.13.2 (uses system xkb-data) | ≥ 1.8.0 | 1.7.0: built | 1.13.1 | system |
+| wlroots | 0.20.2 (gles2, drm+libinput, Xwayland) | | 0.18: built | built | system |
+| imgui | v1.93.0 | | compiled in | | |
+
+ImGui is compiled into the toolkit, as ImGui is meant to be.
 
 ### Packages
 
 tetra is installed from a package, not with `cmake --install` (`debian/`,
 built by `scripts/build-deb.sh`; an Arch PKGBUILD can follow the same
 pattern). The package build runs `scripts/build-deps.sh --dir debian/deps`
-and configures with `-DTETRA_BUNDLE_DEPS=ON`, which installs the vendored
-runtime libraries (sonames only: no headers, `.pc` files or
-wayland-scanner) into a private `<libdir>/tetra` and points the installed
-binaries' DT_RPATH there instead of at the build prefix. The vendored
+and configures with `-DTETRA_BUNDLE_DEPS=ON`, which installs the libraries
+it built, if any (sonames only: no headers, `.pc` files or wayland-scanner),
+into a private `<libdir>/tetra` and points the installed binaries' DT_RPATH
+there instead of at the build prefix; where the system has everything
+(forky, Arch) the package bundles nothing and has no RPATH. The built
 libraries carry `RUNPATH=$ORIGIN`, so they find each other wherever they
 are. Nothing outside tetra loads them, so they need no shlibs entry
 (`dh_makeshlibs -X`), and `dh_shlibdeps -l` turns everything they and
@@ -239,23 +243,21 @@ Signal handling goes through `tetra::Listener` (RAII `wl_listener` with a C++
 callback). wlroots asserts that no listeners remain on objects it destroys, so
 teardown order in `Server::~Server` is deliberate.
 
-### Local patches
+### No patches
 
-Patches in `patches/<dep>/` are applied by `build-deps.sh` to an export of the
-submodule in `.deps/src/`; the submodule checkout itself stays pristine.
+wlroots is used unpatched, so a distribution's build works too. Two vmwgfx
+(VMware/VirtualBox) problems used to need patches:
 
-- `wlroots/0001-skip-dmabuf-import-check-on-vmwgfx`: wlroots validates every
-  client dmabuf by importing it into the DRM device and closing the handle;
-  vmwgfx (VMware/VirtualBox) rejects the close, so *every* GPU client —
-  Xwayland, Mesa EGL apps, our own toolkit — would be refused. The check is
-  skipped on that driver only. Real GPUs are unaffected.
-- `wlroots/0002-gbm-linear-only-buffers-are-linear`: on drivers without
-  modifier support (vmwgfx), GBM accepts a LINEAR-only allocation but reports
-  the modifier as INVALID; the cursor plane only lists LINEAR, so wlroots
-  rejected every cursor buffer and drew the cursor in software (a frame
-  behind the mouse: "floaty"). A buffer allocated from a LINEAR-only list is
-  now recorded as LINEAR. In VirtualBox the hardware cursor is drawn by the
-  host, like GNOME's.
+- wlroots checks every client dmabuf by importing it into the DRM device and
+  closing the handle; vmwgfx rejects the close, so *every* GPU client
+  (Xwayland, Mesa EGL apps, our own toolkit) would be refused.
+  `Server::init_buffer_globals` creates the linux-dmabuf global itself and,
+  on vmwgfx only, replaces that check through
+  `wlr_linux_dmabuf_v1_set_check_dmabuf_callback`. Real GPUs keep it.
+- GBM on drivers without modifiers reported a LINEAR-only allocation as
+  INVALID, so the cursor plane (LINEAR only) rejected every cursor buffer and
+  the cursor was drawn in software, a frame behind the mouse. wlroots 0.20
+  records such buffers as LINEAR itself.
 
 ## Compositor structure (phase 1)
 

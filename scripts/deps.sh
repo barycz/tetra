@@ -8,7 +8,9 @@ packages=(
     build-essential cmake ninja-build meson pkg-config git
     clang clangd clang-format clang-tidy
 
-    # vendored libs: wayland, xkbcommon, pixman, libdrm
+    # wlroots' libraries: the system's where new enough, the rest is built
+    # by build-deps.sh (needs libffi, expat, libxml2 and bison for that)
+    libwayland-dev wayland-protocols libdrm-dev libxkbcommon-dev libpixman-1-dev
     libffi-dev libexpat1-dev libxml2-dev bison xkb-data
 
     # wlroots

@@ -174,6 +174,7 @@ public:
 private:
     explicit Server(Options options);
     std::expected<void, std::string> init();
+    void init_buffer_globals(); // wl_shm, linux-dmabuf
     void init_protocols();
     void init_input();
     void init_xwayland();

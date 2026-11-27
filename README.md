@@ -21,7 +21,7 @@ Pictures: [docs/screenshots](docs/screenshots/README.md).
 ```bash
 git clone --recurse-submodules <repo> tetra && cd tetra
 scripts/deps.sh            # apt packages (needs sudo)
-scripts/build-deps.sh      # pinned wayland/libdrm/pixman/xkbcommon/wlroots -> .deps/prefix
+scripts/build-deps.sh      # wlroots 0.20 and libs the system has too old -> .deps/prefix
 cmake --preset debug
 cmake --build --preset debug
 ```
@@ -40,9 +40,11 @@ sudo apt install ./build/deb/tetra_*_amd64.deb
 `build-deb.sh` builds from a clean copy of the sources (uncommitted changes
 included) and names each build `<version>+git<date>.<commit>`, so a newer
 build upgrades the installed one; `--release` keeps the version in
-`debian/changelog`. The package brings its own wlroots 0.20 and the newer
-wayland, libdrm, pixman and libxkbcommon in `/usr/lib/x86_64-linux-gnu/tetra`,
-used only by tetra's programs. `sudo apt remove tetra` takes it all away
+`debian/changelog`. On Debian 13 the package brings its own wlroots 0.20 and
+the newer wayland, libdrm, pixman and libxkbcommon it needs (only wlroots,
+libdrm and pixman with trixie-backports enabled) in
+`/usr/lib/x86_64-linux-gnu/tetra`, used only by tetra's programs; on Debian
+forky/sid it uses the system's. `sudo apt remove tetra` takes it all away
 again (`purge` also removes `/etc/pam.d/tetra`). `scripts/run-tests.sh installed`
 runs the headless scenarios against the installed package.
 
@@ -156,12 +158,11 @@ data/             files installed alongside (PAM service, desktop entries, sessi
                   config, portal files)
 tests/unit/       unit tests (config editing, monitor, portal, greeter, desktop files)
 protocols/        tetra's private Wayland protocol (compositor <-> shell)
-scripts/          deps, vendored build, headless runner, test runner, .deb build
+scripts/          deps, missing-library build, headless runner, test runner, .deb build
 debian/           Debian packaging (scripts/build-deb.sh)
 tests/headless/   scripted headless scenarios
 tests/tools/      tetra-sendkeys, tetra-pointer, tetra-tray-item, polkit-request, fake-polkit-helper,
                   portal-request, tetra-foreign-parent, fake-greetd, fake-logind
-patches/          local patches to vendored dependencies
 third_party/      pinned submodules (wlroots, wayland, imgui, ...)
 docs/             design notes, configuration reference
 ```
