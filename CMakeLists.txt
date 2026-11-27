@@ -49,8 +49,7 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(WLROOTS IMPORTED_TARGET wlroots-0.20)
 if(NOT WLROOTS_FOUND)
-    message(FATAL_ERROR "wlroots 0.20 not found, neither on the system nor in ${TETRA_DEPS_PREFIX}.
-"
+    message(FATAL_ERROR "wlroots 0.20 not found, neither on the system nor in ${TETRA_DEPS_PREFIX}.\n"
                         "Run scripts/build-deps.sh first.")
 endif()
 pkg_check_modules(WAYLAND_SERVER REQUIRED IMPORTED_TARGET wayland-server)

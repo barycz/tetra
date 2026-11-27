@@ -6,7 +6,8 @@ controls and configuration. See [docs/design.md](docs/design.md).
 
 Status: all six phases of the roadmap are done; none of it has been tried
 on a real seat yet. The compositor has server-side decorations, snap zones,
-window memory, animations and Xwayland; `tetra-shell` has the F-key task bar
+window memory, animations, Xwayland and the desktop background (the tetra
+logo drawn in the accent colour, a picture, or a colour); `tetra-shell` has the F-key task bar
 (12 slots in groups of four), the app launcher with a power menu,
 network/battery/volume indicators, app icons in the tray (StatusNotifierItem),
 notifications, a volume/brightness OSD, a lock screen (PAM) with idle locking

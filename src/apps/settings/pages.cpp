@@ -4,6 +4,7 @@
 #include "settings.hpp"
 
 #include "config.hpp"
+#include "mark.hpp"
 #include "process.hpp"
 #include "style.hpp"
 
@@ -16,6 +17,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <format>
 #include <ranges>
 #include <sstream>
@@ -32,6 +34,7 @@ namespace tetra::settings {
 namespace {
 
 using config::Color;
+namespace fs = std::filesystem;
 
 struct Swatch {
     const char* name;
@@ -227,27 +230,86 @@ void Settings::page_appearance() {
     }
     end_card();
 
-    begin_card("Desktop");
-    row("Background");
-    for (const auto& swatch : kBackgrounds) {
-        const Color color = *Color::parse(swatch.hex);
-        if (color_swatch(swatch.name, color, color == c.desktop.background, 32)) {
-            save([hex = std::string(swatch.hex)](config::Document& d) {
-                return d.set({"desktop", "background"}, hex);
-            });
+    begin_card("Background");
+    {
+        using Wallpaper = config::Desktop::Wallpaper;
+        struct Kind {
+            Wallpaper value;
+            const char* key;
+            const char* label;
+        };
+        static constexpr std::array kKinds{
+            Kind{Wallpaper::Logo, "logo", "Logo"},
+            Kind{Wallpaper::Picture, "picture", "Picture"},
+            Kind{Wallpaper::Color, "color", "Colour"},
+        };
+        for (const auto& kind : kKinds) {
+            if (wallpaper_tile(kind.key, kind.label, kind.value, kind.value == c.desktop.wallpaper)) {
+                if (kind.value == Wallpaper::Picture && c.desktop.picture.empty()) {
+                    choose_picture(); // nothing to show yet
+                } else {
+                    save([key = kind.key](config::Document& d) { return d.set({"desktop", "wallpaper"}, key); });
+                }
+            }
+            ImGui::SameLine(0, 12);
         }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s", swatch.name);
+        ImGui::NewLine();
+
+        if (c.desktop.wallpaper == Wallpaper::Picture) {
+            const std::string where = c.desktop.picture.empty() ? std::string("None chosen yet.") : c.desktop.picture;
+            row("Picture", where.c_str());
+            if (ImGui::Button("Choose\u2026", {control_width(), 0})) {
+                choose_picture();
+            }
+            row("Fit");
+            using Fit = config::Desktop::Fit;
+            struct Choice {
+                Fit value;
+                const char* key;
+                const char* label;
+            };
+            static constexpr std::array kFits{
+                Choice{Fit::Fill, "fill", "Fill the screen"},
+                Choice{Fit::Fit, "fit", "Whole picture"},
+                Choice{Fit::Center, "center", "Original size"},
+            };
+            const auto current = std::ranges::find(kFits, c.desktop.picture_fit, &Choice::value);
+            if (ImGui::BeginCombo("##fit", current->label)) {
+                for (const auto& choice : kFits) {
+                    if (ImGui::Selectable(choice.label, choice.value == c.desktop.picture_fit)) {
+                        save([key = choice.key](config::Document& d) {
+                            return d.set({"desktop", "picture_fit"}, key);
+                        });
+                    }
+                }
+                ImGui::EndCombo();
+            }
         }
-        ImGui::SameLine(0, 4);
-    }
-    ImGui::NewLine();
-    row("Custom background", "A colour as #rrggbb; Enter applies it.");
-    if (text_field("##background", "#1b1d22", background_buffer_, c.desktop.background.hex())) {
-        if (auto color = Color::parse(background_buffer_.data())) {
-            save([hex = color->hex()](config::Document& d) { return d.set({"desktop", "background"}, hex); });
-        } else {
-            error_ = std::format("\"{}\" is not a colour", background_buffer_.data());
+
+        const char* hint = c.desktop.wallpaper == Wallpaper::Logo      ? "Behind the logo."
+                           : c.desktop.wallpaper == Wallpaper::Picture ? "Around a picture that does not fill the screen."
+                                                                       : nullptr;
+        row("Colour", hint);
+        for (const auto& swatch : kBackgrounds) {
+            const Color color = *Color::parse(swatch.hex);
+            if (color_swatch(swatch.name, color, color == c.desktop.background, 32)) {
+                save([hex = std::string(swatch.hex)](config::Document& d) {
+                    return d.set({"desktop", "background"}, hex);
+                });
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s", swatch.name);
+            }
+            ImGui::SameLine(0, 4);
+        }
+        ImGui::NewLine();
+        row("Custom colour", "A colour as #rrggbb; Enter applies it.");
+        if (text_field("##background", "#1b1d22", background_buffer_, c.desktop.background.hex())) {
+            if (auto color = Color::parse(background_buffer_.data())) {
+                save([hex = color->hex()](config::Document& d) { return d.set({"desktop", "background"}, hex); });
+            } else {
+                error_ = std::format("\"{}\" is not a colour", background_buffer_.data());
+            }
         }
     }
     end_card();
@@ -279,6 +341,98 @@ void Settings::page_appearance() {
 }
 
 // --- Taskbar -----------------------------------------------------------------------------
+
+bool Settings::wallpaper_tile(const char* id, const char* label, config::Desktop::Wallpaper kind, bool selected) {
+    constexpr float kWidth = 128;
+    constexpr float kHeight = 80;
+    const auto& p = app_.palette();
+    const auto& c = app_.config();
+    const float label_height = ImGui::GetTextLineHeightWithSpacing();
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const bool clicked = ImGui::InvisibleButton(id, {kWidth, kHeight + label_height + 4});
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 end{start.x + kWidth, start.y + kHeight};
+    // The desktop in miniature: the colour, and the logo or a picture sign.
+    dl->AddRectFilled(start, end, ui::to_imu32(c.desktop.background), 6);
+    const ImVec2 center{(start.x + end.x) / 2, (start.y + end.y) / 2};
+    const float lum = (0.2126F * c.desktop.background.r) + (0.7152F * c.desktop.background.g) +
+                      (0.0722F * c.desktop.background.b);
+    const Color ink = lum > 0.5F ? Color{0, 0, 0, 0.45F} : Color{1, 1, 1, 0.55F};
+    if (kind == config::Desktop::Wallpaper::Logo) {
+        ui::draw_mark(dl, {center.x, center.y + 2}, 36, ui::to_imu32(p.accent));
+    } else if (kind == config::Desktop::Wallpaper::Picture) {
+        // A landscape: a sun over two hills.
+        const ImU32 color = ui::to_imu32(ink);
+        dl->AddCircleFilled({center.x + 14, center.y - 12}, 5, color);
+        dl->AddTriangleFilled({center.x - 30, center.y + 18}, {center.x - 8, center.y - 6}, {center.x + 14, center.y + 18},
+                              color);
+        dl->AddTriangleFilled({center.x, center.y + 18}, {center.x + 16, center.y + 2}, {center.x + 32, center.y + 18},
+                              color);
+    }
+    dl->AddRect(start, end, ui::to_imu32(selected ? p.accent : hovered ? p.text_dim : p.separator), 6,
+                selected ? 2.0F : 1.0F);
+    const ImVec2 text = ImGui::CalcTextSize(label);
+    dl->AddText({start.x + std::max(0.0F, (kWidth - text.x) / 2), end.y + 4},
+                ui::to_imu32(selected ? p.text : p.text_dim), label);
+    return clicked;
+}
+
+void Settings::choose_picture() {
+    if (picker_) {
+        return; // already open
+    }
+    if (!mime_) {
+        mime_ = std::make_unique<portal::MimeGlobs>();
+        mime_->load("/usr/share/mime");
+    }
+    portal::DialogOptions options;
+    options.mode = portal::DialogOptions::Mode::Open;
+    options.title = "Choose a Background Picture";
+    options.accept_label = "Choose";
+    options.filters = {portal::Filter{.name = "Pictures", .rules = {{1, "image/*"}}},
+                       portal::Filter{.name = "All files", .rules = {}}};
+    const char* home = std::getenv("HOME");
+    const fs::path home_dir = home != nullptr ? fs::path(home) : fs::path("/");
+    const std::string& current = app_.config().desktop.picture;
+    if (!current.empty()) {
+        options.folder = fs::path(current).parent_path();
+    } else {
+        // The Pictures folder: $XDG_PICTURES_DIR, else user-dirs.dirs.
+        fs::path pictures;
+        if (const char* env = std::getenv("XDG_PICTURES_DIR"); env != nullptr && *env != 0) {
+            pictures = env;
+        } else {
+            const char* config_home = std::getenv("XDG_CONFIG_HOME");
+            const auto dirs = portal::user_dirs(
+                home_dir, config_home != nullptr && *config_home != 0 ? fs::path(config_home) : home_dir / ".config");
+            if (const auto it = dirs.find("PICTURES"); it != dirs.end()) {
+                pictures = it->second;
+            }
+        }
+        std::error_code ec;
+        options.folder = !pictures.empty() && fs::is_directory(pictures, ec) ? pictures : home_dir;
+    }
+    picker_ = std::make_unique<portal::FileDialog>(
+        app_, *mime_, std::move(options), [this, home_dir](const portal::DialogResult& result) {
+            if (result.accepted && !result.paths.empty()) {
+                // Under the home directory as "~/...", as one would write it.
+                std::string path = result.paths.front().string();
+                const std::string prefix = home_dir.string() + "/";
+                if (home_dir != "/" && path.starts_with(prefix)) {
+                    path = "~/" + path.substr(prefix.size());
+                }
+                save([path](config::Document& d) -> std::expected<void, std::string> {
+                    if (auto set = d.set({"desktop", "picture"}, path); !set) {
+                        return set;
+                    }
+                    return d.set({"desktop", "wallpaper"}, "picture");
+                });
+            }
+            // Not from inside the dialog's own callback.
+            app_.add_timer(std::chrono::milliseconds(0), [this] { picker_.reset(); });
+        });
+}
 
 bool Settings::icon_button(const char* id, const char* icon_name, bool enabled) {
     const auto& p = app_.palette();

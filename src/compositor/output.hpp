@@ -5,6 +5,7 @@
 #include "wlr.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -19,8 +20,9 @@ class Server;
 // connector name.
 std::string display_key(const wlr_output* output);
 
-// A display: mode/scale/position from the config, the desktop background,
-// and the layer-shell surfaces (bars, wallpapers, ...) placed on it.
+// A display: mode/scale/position from the config, the desktop background
+// (the colour, and the logo or picture over it: Wallpaper), and the
+// layer-shell surfaces (bars, wallpapers, ...) placed on it.
 class Output {
 public:
     Output(Server& server, wlr_output* wlr_output);
@@ -75,6 +77,15 @@ private:
     Server& server_;
     wlr_output* output_;
     wlr_scene_rect* background_ = nullptr;
+    wlr_scene_buffer* wallpaper_ = nullptr; // logo or picture over the colour; null until needed
+    struct WallpaperKey {
+        int width = 0;
+        int height = 0;
+        float scale = 0;
+        std::uint64_t generation = 0;
+        bool operator==(const WallpaperKey&) const = default;
+    };
+    WallpaperKey wallpaper_key_; // what wallpaper_ shows
     wlr_box usable_area_{};
     bool powered_ = true;
     wlr_output_mode* saved_mode_ = nullptr;  // mode before power-off (null: custom)

@@ -1,6 +1,7 @@
 pkg_check_modules(PANGOCAIRO REQUIRED IMPORTED_TARGET pangocairo cairo)
 pkg_check_modules(LIBINPUT REQUIRED IMPORTED_TARGET libinput)
 pkg_check_modules(LIBDRM REQUIRED IMPORTED_TARGET libdrm)
+pkg_check_modules(GDK_PIXBUF REQUIRED IMPORTED_TARGET gdk-pixbuf-2.0)
 
 add_executable(tetra
     animation.cpp
@@ -19,6 +20,7 @@ add_executable(tetra
     shell_protocol.cpp
     taskbar.cpp
     view.cpp
+    wallpaper.cpp
     wm.cpp
     xdg_view.cpp
     xwayland_view.cpp
@@ -44,6 +46,7 @@ target_link_libraries(tetra PRIVATE
     PkgConfig::PANGOCAIRO
     PkgConfig::LIBINPUT
     PkgConfig::LIBDRM
+    PkgConfig::GDK_PIXBUF
 )
 
 install(TARGETS tetra)

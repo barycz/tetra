@@ -293,8 +293,43 @@ Config parse(const json& root, Reader& reader) {
 
     if (auto it = root.find("desktop"); it != root.end()) {
         const auto& desktop = Reader::expect_object(*it, "desktop");
-        reader.check_keys(desktop, "desktop.", {"background"});
-        Reader::read(desktop, "desktop.", "background", config.desktop.background);
+        reader.check_keys(desktop, "desktop.", {"wallpaper", "background", "picture", "picture_fit"});
+        auto& d = config.desktop;
+        std::string wallpaper;
+        Reader::read(desktop, "desktop.", "wallpaper", wallpaper);
+        if (wallpaper == "logo") {
+            d.wallpaper = Desktop::Wallpaper::Logo;
+        } else if (wallpaper == "picture") {
+            d.wallpaper = Desktop::Wallpaper::Picture;
+        } else if (wallpaper == "color") {
+            d.wallpaper = Desktop::Wallpaper::Color;
+        } else if (!wallpaper.empty()) {
+            throw ConfigError(std::format(
+                "'desktop.wallpaper' must be \"logo\", \"picture\" or \"color\", got \"{}\"", wallpaper));
+        }
+        Reader::read(desktop, "desktop.", "background", d.background);
+        Reader::read(desktop, "desktop.", "picture", d.picture);
+        if (d.picture.starts_with("~/")) {
+            if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+                d.picture = std::string(home) + d.picture.substr(1);
+            }
+        }
+        if (!d.picture.empty() && !d.picture.starts_with('/')) {
+            throw ConfigError(std::format(
+                "'desktop.picture' must be an absolute path or start with \"~/\", got \"{}\"", d.picture));
+        }
+        std::string fit;
+        Reader::read(desktop, "desktop.", "picture_fit", fit);
+        if (fit == "fill") {
+            d.picture_fit = Desktop::Fit::Fill;
+        } else if (fit == "fit") {
+            d.picture_fit = Desktop::Fit::Fit;
+        } else if (fit == "center") {
+            d.picture_fit = Desktop::Fit::Center;
+        } else if (!fit.empty()) {
+            throw ConfigError(std::format(
+                "'desktop.picture_fit' must be \"fill\", \"fit\" or \"center\", got \"{}\"", fit));
+        }
     }
 
     if (auto it = root.find("windows"); it != root.end()) {

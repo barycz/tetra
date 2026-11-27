@@ -22,6 +22,7 @@
 namespace tetra {
 
 class Animator;
+class Wallpaper;
 class Keyboard;
 class Pointer;
 class LayerSurface;
@@ -61,6 +62,7 @@ public:
     [[nodiscard]] bool greeter_mode() const noexcept { return options_.greeter; }
     [[nodiscard]] bool terminating() const noexcept { return terminating_; }
     [[nodiscard]] Animator& animator() noexcept { return *animator_; }
+    [[nodiscard]] Wallpaper& wallpaper() noexcept { return *wallpaper_; }
     [[nodiscard]] const std::vector<std::unique_ptr<Output>>& outputs() const noexcept { return outputs_; }
     pid_t spawn(const std::string& command);
 
@@ -257,6 +259,7 @@ private:
     std::unique_ptr<ShellProtocol> shell_protocol_;
     std::unique_ptr<SessionLock> session_lock_;
     std::unique_ptr<Animator> animator_;
+    std::unique_ptr<Wallpaper> wallpaper_; // before any output appears, gone after them
     wlr_idle_notifier_v1* idle_notifier_ = nullptr;
     struct IdleInhibitor {
         Listener destroy;

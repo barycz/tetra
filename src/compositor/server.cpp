@@ -13,6 +13,7 @@
 #include "session_lock.hpp"
 #include "shell_protocol.hpp"
 #include "view.hpp"
+#include "wallpaper.hpp"
 #include "xdg_view.hpp"
 #include "xwayland_view.hpp"
 
@@ -75,6 +76,7 @@ Server::~Server() {
     keyboards_.clear();
     pointers_.clear();
     outputs_.clear();
+    wallpaper_.reset();
     taskbar_.on_changed = nullptr;
     shell_protocol_.reset();
 
@@ -217,6 +219,7 @@ std::expected<void, std::string> Server::init() {
     zone_overlay_ = std::make_unique<ZoneOverlay>(*this, layers.zones);
     session_lock_ = std::make_unique<SessionLock>(*this); // its cover goes above everything
     animator_ = std::make_unique<Animator>(*this);
+    wallpaper_ = std::make_unique<Wallpaper>(*this);
     layout_change_.connect(output_layout->events.change, [this] {
         if (session_lock_) {
             session_lock_->handle_layout_changed();
@@ -621,10 +624,8 @@ void Server::apply_config(const config::Config& previous) {
             view->refit();
         }
     }
-    if (config_.desktop != previous.desktop) {
-        for (const auto& output : outputs_) {
-            output->update_background();
-        }
+    if (config_.desktop != previous.desktop || config_.theme.accent != previous.theme.accent) {
+        wallpaper_->update(); // redraws the outputs' backgrounds
     }
     if (config_.theme != previous.theme || config_.windows != previous.windows) {
         for (const auto& view : views_) {

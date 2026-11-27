@@ -6,6 +6,7 @@
 #include "zones.hpp"
 
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <print>
@@ -383,6 +384,47 @@ void snap_zones() {
 
 int monitor_tests(); // monitor_test.cpp
 int portal_tests();  // portal_test.cpp
+void desktop_background() {
+    using Desktop = tetra::config::Desktop;
+    auto config = tetra::config::parse_text("{}");
+    check(config.has_value() && config->desktop.wallpaper == Desktop::Wallpaper::Logo &&
+              config->desktop.picture.empty() && config->desktop.picture_fit == Desktop::Fit::Fill &&
+              config->desktop.background.hex() == "#1b1d22",
+          "desktop defaults: the logo");
+
+    config = tetra::config::parse_text(R"({ "desktop": { "wallpaper": "picture", "picture": "/srv/a b.jpg",
+                                             "picture_fit": "center", "background": "#102030" } })");
+    check(config.has_value() && config->desktop.wallpaper == Desktop::Wallpaper::Picture &&
+              config->desktop.picture == "/srv/a b.jpg" && config->desktop.picture_fit == Desktop::Fit::Center &&
+              config->desktop.background.hex() == "#102030",
+          "desktop picture values");
+    config = tetra::config::parse_text(R"({ "desktop": { "wallpaper": "color", "picture_fit": "fit" } })");
+    check(config.has_value() && config->desktop.wallpaper == Desktop::Wallpaper::Color &&
+              config->desktop.picture_fit == Desktop::Fit::Fit,
+          "desktop colour values");
+
+    // "~/" is the home directory.
+    const char* old_home = std::getenv("HOME");
+    const std::string saved = old_home != nullptr ? old_home : "";
+    setenv("HOME", "/home/someone", 1); // NOLINT(concurrency-mt-unsafe): single-threaded test
+    config = tetra::config::parse_text(R"({ "desktop": { "picture": "~/Pictures/dusk.png" } })");
+    check(config.has_value() && config->desktop.picture == "/home/someone/Pictures/dusk.png", "picture ~/ expands");
+    if (old_home != nullptr) {
+        setenv("HOME", saved.c_str(), 1); // NOLINT(concurrency-mt-unsafe)
+    } else {
+        unsetenv("HOME"); // NOLINT(concurrency-mt-unsafe)
+    }
+
+    auto error = [](std::string_view text) {
+        auto c = tetra::config::parse_text(text);
+        return c ? std::string() : c.error();
+    };
+    check(error(R"({"desktop": {"wallpaper": "video"}})").contains("'desktop.wallpaper' must be"), "wallpaper values");
+    check(error(R"({"desktop": {"picture_fit": "tile"}})").contains("'desktop.picture_fit' must be"), "fit values");
+    check(error(R"({"desktop": {"picture": "Pictures/a.png"}})").contains("absolute path"), "relative picture");
+    check(error(R"({"desktop": {"picture": 3}})").contains("'desktop.picture' must be a string"), "picture type");
+}
+
 int greeter_tests(); // greeter_test.cpp
 
 int main() {
@@ -402,6 +444,7 @@ int main() {
     merge_elements();
     color_hex();
     mouse_and_touchpad();
+    desktop_background();
     window_memory();
     snap_zones();
     if (failures == 0) {

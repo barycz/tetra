@@ -5,6 +5,7 @@
 #include "config_edit.hpp"
 #include "desktop_entry.hpp"
 #include "displays.hpp"
+#include "file_dialog.hpp"
 #include "icons.hpp"
 #include "window.hpp"
 #include "xkb.hpp"
@@ -78,6 +79,11 @@ private:
     // Writes one change; shows the error if the file cannot take it.
     bool save(const Edit& edit);
 
+    // Desktop background (pages.cpp): a tile per kind, previewing it.
+    bool wallpaper_tile(const char* id, const char* label, config::Desktop::Wallpaper kind, bool selected);
+    // The file chooser for desktop.picture; choosing one also selects it.
+    void choose_picture();
+
     // Displays (display_page.cpp). Changes are JSON members per display
     // name, e.g. {"scale", "1.5"}; they can be reverted for a few seconds.
     using DisplayChanges = std::vector<std::pair<std::string, std::string>>;
@@ -107,6 +113,8 @@ private:
     Audio audio_;
     std::vector<std::string> font_families_;
     std::unique_ptr<ui::ToplevelWindow> window_;
+    std::unique_ptr<portal::MimeGlobs> mime_;     // for the picture chooser, loaded on first use
+    std::unique_ptr<portal::FileDialog> picker_; // the picture chooser, while open
     Page page_ = Page::Appearance;
     std::string error_;            // the last save that failed
     std::string load_error_;       // config.json does not load as it is

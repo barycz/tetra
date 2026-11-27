@@ -11,6 +11,14 @@ the password; suspend, restart and shut down at the bottom right.
 
 ![Login screen](login-screen.png)
 
+## Desktop background
+
+The default: the tetra mark as a paper net, drawn by the compositor in the
+accent colour. Settings > Appearance > Background also offers a picture or
+the colour alone.
+
+![Desktop background](background.png)
+
 ## Desktop
 
 The terminal and the system monitor snapped side by side (Super+Left,

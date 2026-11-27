@@ -5,6 +5,7 @@
 #include "layer_surface.hpp"
 #include "log.hpp"
 #include "server.hpp"
+#include "wallpaper.hpp"
 
 #include <algorithm>
 #include <array>
@@ -94,6 +95,9 @@ Output::~Output() {
     // Closing a layer surface removes it from layer_surfaces_ via its destroy handler.
     while (!layer_surfaces_.empty()) {
         wlr_layer_surface_v1_destroy(layer_surfaces_.back()->wlr());
+    }
+    if (wallpaper_ != nullptr) {
+        wlr_scene_node_destroy(&wallpaper_->node);
     }
     wlr_scene_node_destroy(&background_->node);
 }
@@ -221,11 +225,46 @@ void Output::ensure_scene_output() {
 
 void Output::update_background() {
     const wlr_box area = box();
-    wlr_scene_node_set_enabled(&background_->node, !wlr_box_empty(&area));
+    const bool shown = !wlr_box_empty(&area);
+    wlr_scene_node_set_enabled(&background_->node, shown);
     wlr_scene_node_set_position(&background_->node, area.x, area.y);
     wlr_scene_rect_set_size(background_, area.width, area.height);
     wlr_scene_rect_set_color(background_,
                              server_.config().desktop.background.premultiplied().data());
+
+    // The logo or picture over it, drawn at the display's own resolution
+    // (again only when that or what it shows changed).
+    Wallpaper& wallpaper = server_.wallpaper();
+    const float scale = output_->scale;
+    if (shown) {
+        int width = 0;
+        int height = 0;
+        wlr_output_transformed_resolution(output_, &width, &height);
+        wallpaper.ensure_covers(width, height);
+    }
+    const WallpaperKey key{.width = shown ? area.width : 0,
+                           .height = shown ? area.height : 0,
+                           .scale = scale,
+                           .generation = wallpaper.generation()};
+    if (key != wallpaper_key_) {
+        wallpaper_key_ = key;
+        wlr_buffer* buffer = shown ? wallpaper.render(area.width, area.height, scale) : nullptr;
+        if (buffer != nullptr && wallpaper_ == nullptr) {
+            wallpaper_ = wlr_scene_buffer_create(server_.layers.background, nullptr);
+            wlr_scene_node_place_above(&wallpaper_->node, &background_->node);
+        }
+        if (wallpaper_ != nullptr) {
+            wlr_scene_buffer_set_buffer(wallpaper_, buffer);
+            wlr_scene_buffer_set_dest_size(wallpaper_, area.width, area.height);
+        }
+        if (buffer != nullptr) {
+            wlr_buffer_drop(buffer); // the scene buffer holds it
+        }
+    }
+    if (wallpaper_ != nullptr) {
+        wlr_scene_node_set_position(&wallpaper_->node, area.x, area.y);
+        wlr_scene_node_set_enabled(&wallpaper_->node, shown && wallpaper_->buffer != nullptr);
+    }
 }
 
 void Output::arrange_layers() {

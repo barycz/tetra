@@ -54,7 +54,12 @@ the error is logged by each component.
     "animations": true            // windows fade and move, panels slide
   },
 
-  "desktop": { "background": "#1b1d22" },
+  "desktop": {
+    "wallpaper": "logo",          // "logo", "picture" or "color"
+    "background": "#1b1d22",      // the colour: alone, behind the logo, around a picture
+    "picture": "~/Pictures/dusk.jpg",
+    "picture_fit": "fill"         // "fill", "fit" or "center"
+  },
 
   "windows": {
     "titlebar_height": 32,
@@ -141,7 +146,10 @@ Built-in layouts: `none`, `columns-2`, `columns-3`, `priority` (wide middle),
 | `theme.font` | string | `"Inter"` | yes |
 | `theme.font_size` | number, 6–48 | `14` | yes |
 | `theme.animations` | bool | `true` | yes |
+| `desktop.wallpaper` | `"logo"`, `"picture"` or `"color"` | `"logo"` | yes |
 | `desktop.background` | colour | `"#1b1d22"` | yes |
+| `desktop.picture` | absolute path, or starting with `~/` | none | yes |
+| `desktop.picture_fit` | `"fill"`, `"fit"` or `"center"` | `"fill"` | yes |
 | `windows.titlebar_height` | integer, 16–96 | `32` | yes |
 | `windows.border_width` | integer, 0–16 | `1` | yes |
 | `windows.remember_positions` | bool | `true` | yes |

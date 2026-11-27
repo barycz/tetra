@@ -90,8 +90,19 @@ struct Theme {
     bool operator==(const Theme&) const = default;
 };
 
+// What the desktop shows behind the windows.
 struct Desktop {
-    Color background = *Color::parse("#1b1d22");
+    // The tetra mark drawn in the accent colour, a picture, or the colour alone.
+    enum class Wallpaper { Logo, Picture, Color };
+    // How a picture covers the display: all of it, cropping the picture
+    // (fill); the whole picture, with the colour around it (fit); or the
+    // picture at its own size in the middle (center).
+    enum class Fit { Fill, Fit, Center };
+
+    Wallpaper wallpaper = Wallpaper::Logo;
+    Color background = *Color::parse("#1b1d22"); // also behind the logo and around a picture
+    std::string picture;                         // absolute, "~/" expanded
+    Fit picture_fit = Fit::Fill;
     bool operator==(const Desktop&) const = default;
 };
 

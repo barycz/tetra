@@ -431,6 +431,37 @@ makes everything N times slower, to look at them and for tests.
   (alpha and position), so cards and icons drawn with explicit colours
   fade too; a running transition keeps its window rendering.
 
+## Desktop background
+
+`desktop.wallpaper` (Settings > Appearance > Background) picks what the
+desktop shows behind the windows; `desktop.background` is the colour under
+it. The compositor draws it (`src/compositor/wallpaper.*`), not a client,
+so it is there from the first frame (the login screen covers it with its
+own surface), at each display's own resolution; a display redraws it only when its size or
+scale or what it shows changes.
+
+- **Logo** (the default): the tetra mark as a paper net, about a quarter of
+  the display high, a little above the middle. The three faces are shaded as
+  if lit from the top left (the accent, lighter, darker), each with a gentle
+  gradient, a light edge and a soft shadow; the middle face is outlined with
+  dashed fold lines. Drawn with cairo from `theme.accent` and the colour, so
+  it follows both live; the same geometry and gaps as the launcher's mark
+  (`ui::draw_mark`). No glow behind it: a gradient that faint bands into
+  rings in 8 bits.
+- **Picture**: any format gdk-pixbuf reads (JPEG, PNG, WebP, JPEG XL, AVIF,
+  SVG, ...), turned upright by its EXIF orientation. `fill` covers the
+  display (cropping), `fit` shows all of it with the colour around, `center`
+  puts it at its own size in the middle. It is decoded on a worker thread,
+  scaled down to what the largest display needs (decoding stays out of the
+  frame loop even for a 50-megapixel photo); the colour shows until it is
+  ready, and stays (with an error in the log) when the file is missing or
+  not a picture. A larger display decodes it again.
+- **Colour**: the colour alone (a scene rect, no buffer).
+- Settings shows the three as tiles previewing each in the current colours;
+  "Picture" opens tetra's file chooser (the portal's dialog, linked in) in
+  the Pictures folder (`$XDG_PICTURES_DIR`, else user-dirs.dirs) and writes
+  the chosen file as `~/...` when it is in the home directory.
+
 ## Session (phase 6)
 
 - **Power menu**: the launcher's footer has a Power button with Lock, Log
