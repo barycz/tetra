@@ -2,6 +2,7 @@ pkg_check_modules(PANGOCAIRO REQUIRED IMPORTED_TARGET pangocairo cairo)
 pkg_check_modules(LIBINPUT REQUIRED IMPORTED_TARGET libinput)
 
 add_executable(tetra
+    animation.cpp
     cairo_buffer.cpp
     decoration.cpp
     input.cpp

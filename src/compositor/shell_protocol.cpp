@@ -9,7 +9,7 @@
 namespace tetra {
 
 namespace {
-constexpr int kVersion = 5;
+constexpr int kVersion = 6;
 }
 
 struct ShellProtocolImpl {
@@ -46,6 +46,12 @@ const struct tetra_shell_v1_interface ShellProtocolImpl::impl = {
             if (self != nullptr && mode >= TETRA_SHELL_V1_SCREENSHOT_MODE_OUTPUT &&
                 mode <= TETRA_SHELL_V1_SCREENSHOT_MODE_WINDOW) {
                 self->server_.take_screenshot(mode);
+            }
+        },
+    .quit =
+        [](wl_client* /*client*/, wl_resource* resource) {
+            if (ShellProtocol* self = from(resource)) {
+                self->server_.terminate(); // log out
             }
         },
 };

@@ -2,6 +2,8 @@
 
 #include "server.hpp"
 
+#include "animation.hpp"
+
 #include "keyboard.hpp"
 #include "layer_surface.hpp"
 #include "log.hpp"
@@ -66,6 +68,7 @@ Server::~Server() {
     grab_ = {};
     zone_overlay_.reset();
     views_.clear();
+    animator_.reset(); // ghosts hold buffers: before the outputs and the scene
     save_window_memory(); // what the closing windows remembered
     keyboards_.clear();
     pointers_.clear();
@@ -172,6 +175,7 @@ std::expected<void, std::string> Server::init() {
     layers.overlay = wlr_scene_tree_create(&scene->tree);
     zone_overlay_ = std::make_unique<ZoneOverlay>(*this, layers.zones);
     session_lock_ = std::make_unique<SessionLock>(*this); // its cover goes above everything
+    animator_ = std::make_unique<Animator>(*this);
     layout_change_.connect(output_layout->events.change, [this] {
         if (session_lock_) {
             session_lock_->handle_layout_changed();
@@ -182,7 +186,9 @@ std::expected<void, std::string> Server::init() {
 
     init_protocols();
     init_input();
-    init_xwayland();
+    if (!options_.greeter) {
+        init_xwayland(); // the login screen has no X11 clients
+    }
 
     desktop_entries_.load();
     shell_protocol_ = std::make_unique<ShellProtocol>(*this);
@@ -229,7 +235,9 @@ std::expected<void, std::string> Server::init() {
     }
 
     watch_config();
-    load_window_memory();
+    if (!options_.greeter) {
+        load_window_memory();
+    }
     return {};
 }
 
@@ -357,7 +365,7 @@ void Server::init_xwayland() {
         });
 }
 
-std::expected<void, std::string> Server::run() {
+std::expected<int, std::string> Server::run() {
     const char* socket = wl_display_add_socket_auto(display);
     if (socket == nullptr) {
         return std::unexpected("failed to open a Wayland socket");
@@ -371,22 +379,24 @@ std::expected<void, std::string> Server::run() {
     setenv("XDG_SESSION_TYPE", "wayland", 1);          // NOLINT(concurrency-mt-unsafe)
     log::info("running on WAYLAND_DISPLAY={}", socket);
 
-    if (session != nullptr) {
-        // Real session (not headless/nested): let D-Bus- and systemd-activated
-        // services (portals, notification actions, ...) find this display.
-        spawn("dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY "
-              "XDG_CURRENT_DESKTOP XDG_SESSION_TYPE");
-    }
-    start_shell();
-    for (const auto& command : config_.autostart) {
-        spawn(command);
+    if (options_.greeter) {
+        start_greeter();
+    } else {
+        if (session != nullptr) {
+            // Real session (not headless/nested): let D-Bus- and systemd-activated
+            // services (portals, notification actions, ...) find this display.
+            spawn("dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY "
+                  "XDG_CURRENT_DESKTOP XDG_SESSION_TYPE");
+        }
+        start_shell();
+        start_autostart();
     }
     if (options_.startup_command) {
         spawn(*options_.startup_command);
     }
 
     wl_display_run(display);
-    return {};
+    return exit_status_;
 }
 
 void Server::terminate() {
@@ -656,8 +666,32 @@ void Server::open_app(std::string_view app_id, const std::string& build_dir) {
     spawn_argv({locate(std::string(app_id), build_dir)});
 }
 
+void Server::start_autostart() {
+    for (const auto& command : config_.autostart) {
+        spawn(command);
+    }
+    for (const auto& entry : autostart_entries(autostart_dirs())) {
+        const auto argv = exec_argv(entry, config_.terminal);
+        if (!argv.empty()) {
+            log::info("autostart: {} ({})", entry.id, entry.path.string());
+            spawn_argv(argv);
+        }
+    }
+}
+
+void Server::start_greeter() {
+    const std::string program = locate("tetra-greeter", "greeter");
+    greeter_pid_ = spawn_argv({program});
+    if (greeter_pid_ < 0) {
+        exit_status_ = 1;
+        terminate();
+        return;
+    }
+    log::info("started greeter {} (pid {})", program, greeter_pid_);
+}
+
 void Server::start_shell() {
-    if (config_.shell.empty() || terminating_ || shell_pid_ > 0) {
+    if (options_.greeter || config_.shell.empty() || terminating_ || shell_pid_ > 0) {
         return;
     }
     const std::string program = locate(config_.shell, "shell");
@@ -670,6 +704,15 @@ void Server::reap_children() {
     int status = 0;
     pid_t pid = 0;
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        if (pid == greeter_pid_) {
+            // The greeter is done (greetd starts the session next) or broke:
+            // either way the login screen ends with it.
+            greeter_pid_ = -1;
+            exit_status_ = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+            log::info("greeter exited with status {}", exit_status_);
+            terminate();
+            continue;
+        }
         if (pid != shell_pid_) {
             continue;
         }

@@ -38,6 +38,12 @@ std::vector<std::string> split(std::string_view text, char sep) {
     return parts;
 }
 
+// $XDG_DATA_DIRS, or its default.
+std::vector<std::string> data_dirs() {
+    const char* value = env("XDG_DATA_DIRS");
+    return split(value != nullptr && *value != '\0' ? value : "/usr/local/share:/usr/share", ':');
+}
+
 // Directories holding .desktop files, highest priority first.
 std::vector<fs::path> application_dirs() {
     std::vector<fs::path> dirs;
@@ -46,10 +52,7 @@ std::vector<fs::path> application_dirs() {
     } else if (const char* user = env("HOME"); user != nullptr) {
         dirs.emplace_back(fs::path(user) / ".local/share/applications");
     }
-    const char* data_dirs = env("XDG_DATA_DIRS");
-    const std::string list =
-        data_dirs != nullptr && *data_dirs != '\0' ? data_dirs : "/usr/local/share:/usr/share";
-    for (const auto& dir : split(list, ':')) {
+    for (const auto& dir : data_dirs()) {
         dirs.emplace_back(fs::path(dir) / "applications");
     }
     return dirs;
@@ -192,14 +195,17 @@ std::optional<DesktopEntry> parse(const fs::path& path, std::string id,
     entry.wm_class = unescape(get("StartupWMClass"));
     entry.keywords = split(localized("Keywords"), ';');
     entry.categories = split(get("Categories"), ';');
+    entry.desktop_names = split(get("DesktopNames"), ';');
     entry.terminal = boolean("Terminal");
+    entry.autostart_enabled = get("X-GNOME-Autostart-enabled") != "false";
 
     const auto only = split(get("OnlyShowIn"), ';');
     const auto not_in = split(get("NotShowIn"), ';');
     const auto is_tetra = [](const std::string& d) { return iequals(d, "tetra"); };
-    entry.hidden_from_menus = boolean("NoDisplay") ||
-                              (!only.empty() && std::ranges::none_of(only, is_tetra)) ||
-                              std::ranges::any_of(not_in, is_tetra);
+    entry.no_display = boolean("NoDisplay");
+    entry.not_for_tetra =
+        (!only.empty() && std::ranges::none_of(only, is_tetra)) || std::ranges::any_of(not_in, is_tetra);
+    entry.hidden_from_menus = entry.no_display || entry.not_for_tetra;
     if (entry.name.empty() || entry.exec.empty()) {
         return std::nullopt;
     }
@@ -215,29 +221,76 @@ bool iequals(std::string_view a, std::string_view b) {
     });
 }
 
-void DesktopDatabase::load() {
-    entries_.clear();
+std::vector<DesktopEntry> read_entries(const std::vector<fs::path>& dirs) {
+    std::vector<DesktopEntry> entries;
     const auto locales = locale_names();
     std::unordered_set<std::string> seen; // IDs from higher-priority dirs win
-    for (const auto& dir : application_dirs()) {
+    for (const auto& dir : dirs) {
         std::error_code ec;
+        std::vector<fs::path> paths;
         for (auto it = fs::recursive_directory_iterator(dir, ec);
              !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
-            const auto& path = it->path();
-            if (path.extension() != ".desktop") {
-                continue;
+            if (it->path().extension() == ".desktop") {
+                paths.push_back(it->path());
             }
-            // ID: path below applications/ with '/' replaced by '-'.
+        }
+        std::ranges::sort(paths); // the same order every time
+        for (const auto& path : paths) {
+            // ID: path below the directory with '/' replaced by '-'.
             std::string id = path.lexically_relative(dir).replace_extension().string();
             std::ranges::replace(id, '/', '-');
             if (!seen.insert(id).second) {
                 continue;
             }
             if (auto entry = parse(path, id, locales)) {
-                entries_.push_back(std::move(*entry));
+                entries.push_back(std::move(*entry));
             }
         }
     }
+    return entries;
+}
+
+std::vector<fs::path> autostart_dirs() {
+    std::vector<fs::path> dirs;
+    if (const char* home = env("XDG_CONFIG_HOME"); home != nullptr && *home == '/') {
+        dirs.emplace_back(fs::path(home) / "autostart");
+    } else if (const char* user = env("HOME"); user != nullptr) {
+        dirs.emplace_back(fs::path(user) / ".config/autostart");
+    }
+    const char* config_dirs = env("XDG_CONFIG_DIRS");
+    for (const auto& dir : split(config_dirs != nullptr && *config_dirs != '\0' ? config_dirs : "/etc/xdg", ':')) {
+        dirs.emplace_back(fs::path(dir) / "autostart");
+    }
+    return dirs;
+}
+
+std::vector<DesktopEntry> autostart_entries(const std::vector<fs::path>& dirs) {
+    auto entries = read_entries(dirs);
+    std::erase_if(entries, [](const DesktopEntry& e) { return e.not_for_tetra || !e.autostart_enabled; });
+    return entries;
+}
+
+std::vector<fs::path> session_dirs() {
+    std::vector<fs::path> dirs;
+    for (const auto& dir : data_dirs()) {
+        dirs.emplace_back(fs::path(dir) / "wayland-sessions");
+    }
+    return dirs;
+}
+
+std::vector<DesktopEntry> session_entries(const std::vector<fs::path>& dirs) {
+    auto entries = read_entries(dirs);
+    std::erase_if(entries, [](const DesktopEntry& e) { return e.no_display; });
+    std::ranges::sort(entries, [](const DesktopEntry& a, const DesktopEntry& b) {
+        return std::ranges::lexicographical_compare(a.name, b.name, [](char x, char y) {
+            return std::tolower(static_cast<unsigned char>(x)) < std::tolower(static_cast<unsigned char>(y));
+        });
+    });
+    return entries;
+}
+
+void DesktopDatabase::load() {
+    entries_ = read_entries(application_dirs());
 }
 
 std::vector<const DesktopEntry*> DesktopDatabase::visible() const {

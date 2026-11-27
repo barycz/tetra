@@ -12,6 +12,7 @@
 #include "notifications.hpp"
 #include "osd.hpp"
 #include "polkit_agent.hpp"
+#include "power.hpp"
 #include "screenshot.hpp"
 #include "shell_service.hpp"
 #include "sni.hpp"
@@ -87,6 +88,10 @@ public:
     void launch(const DesktopEntry& entry);
     // Locks the session (Super+L, idle, logind, before sleep).
     void lock();
+    // Ends the session (the compositor exits); false if it cannot be asked.
+    bool log_out();
+    // Suspend, restart, shut down (logind).
+    [[nodiscard]] ui::Power& power() noexcept { return *power_; }
     void redraw_bars();
     // Volume/brightness change from a key or the mouse wheel: apply and show the OSD.
     void handle_media_key(uint32_t key);
@@ -123,6 +128,7 @@ private:
     std::unique_ptr<ui::DBusConnection> system_bus_;
     std::unique_ptr<Brightness> brightness_;
     std::unique_ptr<Logind> logind_;
+    std::unique_ptr<ui::Power> power_;
     std::unique_ptr<PolkitAgent> polkit_;
     std::unique_ptr<Notifications> notifications_;
     std::unique_ptr<SniTray> sni_;

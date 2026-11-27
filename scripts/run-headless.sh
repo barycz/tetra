@@ -12,6 +12,13 @@
 #   -c FILE    tetra config file      (default: an empty config, i.e. defaults)
 #   -a         a private sound server (PipeWire, no hardware) with two
 #              outputs and a microphone, instead of the simulated device
+#   -g         the login screen (tetra --greeter) with a fake greetd and
+#              made-up users. A login ends the compositor: then the result
+#              is the scenario's own last screenshot ($XDG_RUNTIME_DIR/last.png)
+#   -l         a fake logind (power actions only) on the private bus
+# A scenario may save its own screenshot as $XDG_RUNTIME_DIR/last.png (the
+# result then), and reports a failed check by writing to
+# $XDG_RUNTIME_DIR/scenario-failed.
 #   -d         verbose compositor log
 #
 # Example: scripts/run-headless.sh -- 'foot & foot -e htop'
@@ -27,8 +34,10 @@ preset=debug
 config=""
 debug=0
 sound=0
+greeter=0
+logind=0
 
-while getopts "o:s:n:w:p:c:adh" opt; do
+while getopts "o:s:n:w:p:c:agldh" opt; do
     case "$opt" in
         o) out="$OPTARG" ;;
         s) size="$OPTARG" ;;
@@ -37,8 +46,10 @@ while getopts "o:s:n:w:p:c:adh" opt; do
         p) preset="$OPTARG" ;;
         c) config="$OPTARG" ;;
         a) sound=1 ;;
+        g) greeter=1 ;;
+        l) logind=1 ;;
         d) debug=1 ;;
-        *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+        *) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
     esac
 done
 shift $((OPTIND - 1))
@@ -88,6 +99,9 @@ export TETRA_POLKIT_HELPER="$root/tests/tools/fake-polkit-helper"
 # Screenshots land here, not in the developer's ~/Pictures.
 export XDG_PICTURES_DIR="$runtime/Pictures"
 export XDG_STATE_HOME="$runtime/state" # window memory (windows.json)
+# XDG autostart: none of the developer's or the system's entries.
+mkdir -p "$runtime/config" "$runtime/xdg"
+export XDG_CONFIG_HOME="$runtime/config" XDG_CONFIG_DIRS="$runtime/xdg"
 
 # Tests must not depend on the developer's own ~/.config/tetra. Scenarios
 # may rewrite $TETRA_CONFIG while running (it reloads live).
@@ -98,6 +112,7 @@ fi
 args=(-c "$config")
 [[ -n "$command" ]] && args+=(-s "$command")
 ((debug)) && args+=(-d)
+((greeter)) && args+=(--greeter)
 
 # A private session bus: the shell under test must not take over (or
 # disturb) the services of a real session running on this machine.
@@ -122,6 +137,44 @@ export DBUS_SESSION_BUS_ADDRESS="$(sed -n 1p <<<"$dbus_info")"
 dbus_pid="$(sed -n 2p <<<"$dbus_info")"
 # The system bus too (brightness goes through logind).
 export DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"
+helper_pids=()
+if ((logind)); then
+    "$root/tests/tools/fake-logind" "$runtime/logind.log" &
+    helper_pids+=($!)
+    for _ in $(seq 30); do
+        dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus \
+            org.freedesktop.DBus.NameHasOwner string:org.freedesktop.login1 2>/dev/null | grep -q true && break
+        sleep 0.1
+    done
+fi
+
+# The login screen: a fake greetd, made-up accounts (no real names in
+# screenshots) and two sessions to choose from.
+if ((greeter)); then
+    export GREETD_SOCK="$runtime/greetd.sock"
+    export TETRA_GREETER_PASSWD="$runtime/greeter-passwd"
+    cat >"$TETRA_GREETER_PASSWD" <<'EOF'
+root:x:0:0:root:/root:/bin/bash
+alice:x:1001:1001:Alice Liddell,,,:/home/alice:/bin/bash
+bob:x:1002:1002::/home/bob:/bin/bash
+carol:x:1003:1003:Carol Danvers:/home/carol:/bin/zsh
+dave:x:1004:1004:Dave Bowman:/home/dave:/bin/bash
+backup:x:1005:1005:Backups:/srv:/usr/sbin/nologin
+EOF
+    sessions="$runtime/greeter-data/wayland-sessions"
+    mkdir -p "$sessions"
+    printf '[Desktop Entry]\nType=Application\nName=tetra\nComment=A sleek, minimal desktop\nExec=tetra\nDesktopNames=tetra\n' \
+        >"$sessions/tetra.desktop"
+    printf '[Desktop Entry]\nType=Application\nName=Sway\nComment=An i3-compatible compositor\nExec=sway\nDesktopNames=sway;wlroots\n' \
+        >"$sessions/sway.desktop"
+    export XDG_DATA_DIRS="$runtime/greeter-data"
+    "$root/tests/tools/fake-greetd" "$GREETD_SOCK" "$runtime/greetd.log" &
+    helper_pids+=($!)
+    for _ in $(seq 30); do
+        [[ -S "$GREETD_SOCK" ]] && break
+        sleep 0.1
+    done
+fi
 
 # Sound: never the real PulseAudio/PipeWire server. Either a simulated device
 # inside the shell, or (-a) a private PipeWire in the runtime dir with
@@ -188,6 +241,16 @@ cleanup() {
         kill -TERM "${sound_pids[i]}" 2>/dev/null || true
         wait "${sound_pids[i]}" 2>/dev/null || true
     done
+    for helper in "${helper_pids[@]}"; do
+        kill -TERM "$helper" 2>/dev/null || true
+        wait "$helper" 2>/dev/null || true
+    done
+    for extra in greetd logind; do
+        if [[ -f "$runtime/$extra.log" ]]; then
+            echo "--- $extra requests:"
+            cat "$runtime/$extra.log"
+        fi
+    done >>"$log"
     kill -TERM "$dbus_pid" 2>/dev/null || true
     # D-Bus-activated helpers (document portal, gvfs) mount FUSE file
     # systems in the runtime dir; unmount them before deleting it.
@@ -209,9 +272,35 @@ for _ in $(seq 50); do
 done
 
 sleep "$wait_secs"
-if ! WAYLAND_DISPLAY=wayland-0 grim "$out"; then
+
+# A scenario may take its own screenshot at the right moment ($XDG_RUNTIME_DIR/last.png).
+if ! kill -0 "$pid" 2>/dev/null; then
+    # The session ended on purpose: someone logged in at the login screen
+    # (the greeter, and the compositor with it, exit), or logged out. The
+    # scenario took its screenshot before.
+    status=0
+    wait "$pid" || status=$?
+    echo "--- compositor exited with status $status" >>"$log"
+    if ((greeter)) && ! grep -q '"start_session"' "$runtime/greetd.log" 2>/dev/null; then
+        status="no session started"
+    fi
+    if [[ $status != 0 || ! -f "$runtime/last.png" ]]; then
+        echo "error: tetra ended early (status $status); log tail:" >&2
+        tail -n 20 "$log" >&2
+        exit 1
+    fi
+elif ! WAYLAND_DISPLAY=wayland-0 grim "$out"; then
     echo "error: screenshot failed; log tail:" >&2
     tail -n 20 "$log" >&2
+    exit 1
+fi
+if [[ -f "$runtime/last.png" ]]; then
+    cp "$runtime/last.png" "$out"
+fi
+if [[ -s "$runtime/scenario-failed" ]]; then
+    echo "error: scenario check failed:" >&2
+    cat "$runtime/scenario-failed" >&2
+    cat "$runtime/scenario-failed" >>"$log"
     exit 1
 fi
 echo "$out"

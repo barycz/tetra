@@ -6,6 +6,7 @@
 
 #include <sdbus-c++/sdbus-c++.h>
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -43,6 +44,7 @@ struct Notification {
     std::unique_ptr<ui::Texture> texture; // created from `image` when first drawn
     std::optional<ui::App::TimerId> timer;
     bool hovered = false;
+    std::chrono::steady_clock::time_point shown = std::chrono::steady_clock::now(); // slides in from then
 };
 
 class NotificationPopups;

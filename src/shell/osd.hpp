@@ -3,6 +3,7 @@
 #include "app.hpp"
 #include "window.hpp"
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -33,6 +34,7 @@ private:
     Shell& shell_;
     std::shared_ptr<ui::LayerWindow> window_;
     std::optional<ui::App::TimerId> hide_timer_;
+    std::chrono::steady_clock::time_point appeared_;
     std::string icon_;
     float level_ = 0;
     bool dimmed_ = false;

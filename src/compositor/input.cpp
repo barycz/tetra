@@ -673,8 +673,10 @@ bool Server::handle_keybinding(uint32_t modifiers, xkb_keysym_t sym) {
         return shell_protocol_ && shell_protocol_->media_key(media_key);
     }
 
-    // While locked, every other key goes to the lock screen.
-    if (locked()) {
+    // While locked, every other key goes to the lock screen. The login
+    // screen has no bindings: nothing may start a program (a terminal would
+    // run as the greeter's user) or reach a window behind it.
+    if (locked() || options_.greeter) {
         return false;
     }
 

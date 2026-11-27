@@ -14,7 +14,8 @@ namespace tetra::portal {
 //   org.gnome.desktop.interface color-scheme ("prefer-dark"/"prefer-light"),
 //                               gtk-theme ("Adwaita-dark"/"Adwaita"),
 //                               accent-color (GNOME's nearest named colour),
-//                               font-name ("Inter 10.5": points)
+//                               font-name ("Inter 10.5": points),
+//                               enable-animations (theme.animations)
 // GTK 4 and libadwaita read the first namespace; GTK 3 and others the second.
 struct Appearance {
     uint32_t color_scheme = 0;
@@ -23,6 +24,7 @@ struct Appearance {
     std::string gtk_theme;
     std::string gnome_accent;
     std::string font_name;
+    bool animations = true;
     bool operator==(const Appearance&) const = default;
 };
 

@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""A stand-in for logind's power actions on the tests' private bus:
+org.freedesktop.login1 with CanSuspend/CanReboot/CanPowerOff ("yes") and
+Suspend/Reboot/PowerOff, which only write their name to LOG.
+
+  fake-logind LOG
+
+Everything else (sessions, inhibitors) is missing, as in a container.
+"""
+import sys
+
+from gi.repository import Gio, GLib
+
+XML = """
+<node>
+  <interface name="org.freedesktop.login1.Manager">
+    <method name="CanSuspend"><arg type="s" direction="out"/></method>
+    <method name="CanReboot"><arg type="s" direction="out"/></method>
+    <method name="CanPowerOff"><arg type="s" direction="out"/></method>
+    <method name="Suspend"><arg type="b" direction="in"/></method>
+    <method name="Reboot"><arg type="b" direction="in"/></method>
+    <method name="PowerOff"><arg type="b" direction="in"/></method>
+  </interface>
+</node>
+"""
+
+
+def main():
+    log_path = sys.argv[1]
+    loop = GLib.MainLoop()
+    info = Gio.DBusNodeInfo.new_for_xml(XML).interfaces[0]
+
+    def call(_conn, _sender, _path, _iface, method, params, invocation):
+        if method.startswith("Can"):
+            invocation.return_value(GLib.Variant("(s)", ("yes",)))
+            return
+        with open(log_path, "a") as log:
+            log.write(f"{method} interactive={params.unpack()[0]}\n")
+        invocation.return_value(None)
+
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)  # the tests' bus is both
+    bus.register_object("/org/freedesktop/login1", info, call, None, None)
+    Gio.bus_own_name_on_connection(bus, "org.freedesktop.login1", Gio.BusNameOwnerFlags.NONE,
+                                   None, lambda *_: loop.quit())
+    loop.run()
+
+
+if __name__ == "__main__":
+    main()

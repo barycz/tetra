@@ -1,5 +1,7 @@
 #include "view.hpp"
 
+#include "animation.hpp"
+
 #include "decoration.hpp"
 #include "output.hpp"
 #include "server.hpp"
@@ -16,6 +18,7 @@ View::View(Server& server)
 }
 
 View::~View() {
+    server_.animator().forget(*this);
     release_slot();
     decoration_.reset();
     wlr_scene_node_destroy(&tree_->node);
@@ -120,9 +123,11 @@ void View::handle_map(bool want_maximized, bool want_fullscreen, bool place) {
         set_maximized(true);
     }
     server_.handle_view_mapped(*this);
+    server_.animator().appear(*this);
 }
 
 void View::handle_unmap() {
+    server_.animator().close(*this); // its last picture, before it goes
     remember_place();
     mapped_ = false;
     wlr_scene_node_set_enabled(&tree_->node, false);
@@ -331,10 +336,16 @@ void View::set_minimized(bool minimized) {
     if (minimized_ == minimized) {
         return;
     }
+    if (minimized) {
+        server_.animator().minimize(*this);
+    }
     minimized_ = minimized;
     wlr_scene_node_set_enabled(&tree_->node, mapped_ && !minimized);
     send_minimized(minimized);
     server_.handle_view_minimized(*this);
+    if (!minimized && mapped_) {
+        server_.animator().appear(*this);
+    }
 }
 
 void View::refit() {

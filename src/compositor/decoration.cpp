@@ -44,6 +44,9 @@ Decoration::Decoration(Server& server, View& view)
 
 Decoration::~Decoration() {
     wlr_scene_node_destroy(&tree_->node);
+    if (title_buffer_ != nullptr) {
+        wlr_buffer_unlock(title_buffer_);
+    }
 }
 
 int Decoration::border() const {
@@ -68,6 +71,21 @@ float Decoration::render_scale() const {
 void Decoration::set_visible(bool visible) {
     visible_ = visible;
     wlr_scene_node_set_enabled(&tree_->node, visible);
+}
+
+void Decoration::set_opacity(float opacity) {
+    if (opacity == opacity_) {
+        return;
+    }
+    opacity_ = opacity;
+    const auto& palette = server_.palette();
+    auto color = (view_.activated() ? palette.border_active : palette.border_inactive).premultiplied();
+    for (float& channel : color) {
+        channel *= opacity_;
+    }
+    for (wlr_scene_rect* border : borders_) {
+        wlr_scene_rect_set_color(border, color.data());
+    }
 }
 
 void Decoration::set_hover(Part part) {
@@ -96,7 +114,10 @@ void Decoration::update() {
 
     // Border: four strips around title bar + content, so translucent clients
     // do not show a solid rectangle behind them.
-    const auto color = (active ? palette.border_active : palette.border_inactive).premultiplied();
+    auto color = (active ? palette.border_active : palette.border_inactive).premultiplied();
+    for (float& channel : color) {
+        channel *= opacity_;
+    }
     const int outer_w = c.width + (2 * b);
     const std::array<wlr_box, 4> strips = {{
         {.x = -b, .y = -title - b, .width = outer_w, .height = b}, // top
@@ -218,6 +239,10 @@ void Decoration::render_titlebar(int width, int height, float scale) {
 
     wlr_scene_buffer_set_buffer(titlebar_, buffer->base());
     wlr_scene_buffer_set_dest_size(titlebar_, width, height);
+    if (title_buffer_ != nullptr) {
+        wlr_buffer_unlock(title_buffer_);
+    }
+    title_buffer_ = wlr_buffer_lock(buffer->base());
     wlr_buffer_drop(buffer->base());
 }
 

@@ -53,6 +53,7 @@ add_subdirectory(src/audio)
 add_subdirectory(src/shell)
 add_subdirectory(src/apps)
 add_subdirectory(src/portal)
+add_subdirectory(src/greeter)
 
 option(TETRA_BUILD_TEST_TOOLS "Build helpers for the headless tests" ON)
 if(TETRA_BUILD_TEST_TOOLS)

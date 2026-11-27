@@ -1,0 +1,14 @@
+# greetd with tetra's login screen. Copy to /etc/greetd/config.toml.
+#
+# The greeter runs as greetd's own user (_greetd on Debian). Its look comes
+# from an optional tetra config file (theme, desktop background, outputs):
+#   command = "tetra --greeter -c /etc/tetra/greeter.json"
+# It remembers the last user and session in that user's
+# ~/.local/state/tetra/greeter.json when its home directory is writable.
+
+[terminal]
+vt = 7
+
+[default_session]
+command = "tetra --greeter"
+user = "_greetd"

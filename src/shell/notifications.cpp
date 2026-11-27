@@ -1,5 +1,6 @@
 #include "notifications.hpp"
 
+#include "motion.hpp"
 #include "shell.hpp"
 #include "style.hpp"
 
@@ -167,6 +168,7 @@ uint32_t Notifications::notify(const std::string& app_name, uint32_t replaces_id
 
     if (Notification* old = replaces_id != 0 ? find(replaces_id) : nullptr) {
         n.id = replaces_id;
+        n.shown = old->shown; // an update does not slide in again
         if (old->timer) {
             shell_.app().cancel_timer(*old->timer);
         }
@@ -320,10 +322,16 @@ void NotificationPopups::draw() {
         ids.push_back(list[i]->id);
     }
     float y = 0;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
     for (const uint32_t id : ids) {
         auto it = std::ranges::find_if(notifications_.list(), [&](const auto& n) { return n->id == id; });
         if (it != notifications_.list().end()) {
-            y = draw_card(**it, y, kWidth) + kGap;
+            // A new card slides in from the right while fading in.
+            const float shown = ui::transition(notifications_.shell().app(), *window_, (*it)->shown,
+                                               std::chrono::milliseconds(220));
+            const int first = dl->VtxBuffer.Size;
+            y = draw_card(**it, y, kWidth) + kGap; // may remove the notification
+            ui::fade_since(dl, first, shown, {std::round((1 - shown) * 48), 0});
         }
     }
     ImGui::End();

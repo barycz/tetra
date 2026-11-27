@@ -10,10 +10,11 @@
 namespace {
 
 void print_usage(std::FILE* stream) {
-    std::println(stream, "Usage: tetra [-s COMMAND] [-c FILE] [-d]\n"
+    std::println(stream, "Usage: tetra [-s COMMAND] [-c FILE] [-g] [-d]\n"
                          "\n"
                          "  -s, --startup COMMAND  run COMMAND (via /bin/sh) once the compositor is up\n"
                          "  -c, --config FILE      configuration file (default ~/.config/tetra/config.json)\n"
+                         "  -g, --greeter          the login screen for greetd (runs tetra-greeter, exits with it)\n"
                          "  -d, --debug            verbose logging\n"
                          "  -h, --help             show this help");
 }
@@ -42,6 +43,8 @@ int main(int argc, char* argv[]) {
                 return 2;
             }
             options.config_path = v;
+        } else if (arg == "-g" || arg == "--greeter") {
+            options.greeter = true;
         } else if (arg == "-d" || arg == "--debug") {
             verbosity = WLR_DEBUG;
         } else if (arg == "-h" || arg == "--help") {
@@ -60,9 +63,10 @@ int main(int argc, char* argv[]) {
         tetra::log::error("{}", server.error());
         return 1;
     }
-    if (auto result = (*server)->run(); !result) {
+    auto result = (*server)->run();
+    if (!result) {
         tetra::log::error("{}", result.error());
         return 1;
     }
-    return 0;
+    return *result;
 }

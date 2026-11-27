@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""A stand-in for greetd for the greeter tests: speaks greetd's IPC on a
+unix socket, with made-up accounts instead of PAM.
+
+  fake-greetd SOCKET LOG
+
+Accounts: alice and bob (password "tetra-test"), carol (the same password,
+then a verification code "123456", like a second factor), dave (a PAM
+info message before the password). Every request is written to LOG as a
+JSON line, passwords replaced by "***" (right) or "WRONG"; start_session
+succeeds once the user has authenticated, and the process exits after it.
+"""
+import json
+import os
+import socket
+import struct
+import sys
+
+PASSWORD = "tetra-test"
+ACCOUNTS = {
+    "alice": ["password"],
+    "bob": ["password"],
+    "carol": ["password", "code"],
+    "dave": ["info", "password"],
+}
+
+
+def send(conn, message):
+    data = json.dumps(message).encode()
+    conn.sendall(struct.pack("=I", len(data)) + data)
+
+
+def receive(conn):
+    header = conn.recv(4, socket.MSG_WAITALL)
+    if len(header) < 4:
+        return None
+    (length,) = struct.unpack("=I", header)
+    return json.loads(conn.recv(length, socket.MSG_WAITALL))
+
+
+def prompt(conn, step):
+    if step == "password":
+        send(conn, {"type": "auth_message", "auth_message_type": "secret", "auth_message": "Password:"})
+    elif step == "code":
+        send(conn, {"type": "auth_message", "auth_message_type": "visible", "auth_message": "Verification code:"})
+    elif step == "info":
+        send(conn, {"type": "auth_message", "auth_message_type": "info",
+                    "auth_message": "Your password expires in 3 days"})
+
+
+def serve(conn, log):
+    user, steps, authenticated, failed = None, [], False, False
+    while True:
+        request = receive(conn)
+        if request is None:
+            return False
+        kind = request.get("type")
+        logged = dict(request)
+        if kind == "post_auth_message_response" and "response" in logged and steps and steps[0] == "password":
+            # Made-up passwords: a wrong one is logged as typed, to debug the tests.
+            logged["response"] = "***" if logged["response"] == PASSWORD else "WRONG " + logged["response"]
+        log.write(json.dumps(logged) + "\n")
+        log.flush()
+        if kind == "create_session":
+            if user is not None:
+                send(conn, {"type": "error", "error_type": "error", "description": "a session is already being configured"})
+                continue
+            user, failed = request.get("username"), False
+            steps = list(ACCOUNTS.get(user, ["password"]))
+            prompt(conn, steps[0])
+        elif kind == "post_auth_message_response":
+            if user is None or not steps or failed:
+                send(conn, {"type": "error", "error_type": "error", "description": "no authentication in progress"})
+                continue
+            step = steps.pop(0)
+            answer = request.get("response")
+            ok = (step == "info" and answer is None) or \
+                 (step == "password" and answer == PASSWORD and user in ACCOUNTS) or \
+                 (step == "code" and answer == "123456")
+            if not ok:
+                failed = True
+                send(conn, {"type": "error", "error_type": "auth_error", "description": "pam_authenticate: AUTH_ERR"})
+            elif steps:
+                prompt(conn, steps[0])
+            else:
+                authenticated = True
+                send(conn, {"type": "success"})
+        elif kind == "start_session":
+            if not authenticated:
+                send(conn, {"type": "error", "error_type": "error", "description": "session not authenticated"})
+                continue
+            send(conn, {"type": "success"})
+            return True
+        elif kind == "cancel_session":
+            user, steps, authenticated, failed = None, [], False, False
+            send(conn, {"type": "success"})
+        else:
+            send(conn, {"type": "error", "error_type": "error", "description": "unknown request"})
+
+
+def main():
+    path, log_path = sys.argv[1], sys.argv[2]
+    if os.path.exists(path):
+        os.unlink(path)
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen(4)
+    with open(log_path, "a") as log:
+        while True:
+            conn, _ = server.accept()
+            with conn:
+                if serve(conn, log):
+                    return
+
+
+if __name__ == "__main__":
+    main()

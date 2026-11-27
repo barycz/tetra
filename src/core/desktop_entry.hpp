@@ -18,8 +18,12 @@ struct DesktopEntry {
     std::string wm_class; // StartupWMClass
     std::vector<std::string> keywords;
     std::vector<std::string> categories;
+    std::vector<std::string> desktop_names; // DesktopNames (session files)
     bool terminal = false;
-    bool hidden_from_menus = false; // NoDisplay, or not meant for this desktop
+    bool no_display = false;
+    bool not_for_tetra = false;     // OnlyShowIn/NotShowIn leave tetra out
+    bool hidden_from_menus = false; // no_display or not_for_tetra
+    bool autostart_enabled = true;  // X-GNOME-Autostart-enabled
     std::filesystem::path path;
 };
 
@@ -37,6 +41,23 @@ public:
 private:
     std::vector<DesktopEntry> entries_;
 };
+
+// Every entry in `dirs` (highest priority first). An ID found in an earlier
+// directory hides the same ID in later ones, also when it is Hidden=true
+// (that is how a user turns off a system-wide autostart entry).
+std::vector<DesktopEntry> read_entries(const std::vector<std::filesystem::path>& dirs);
+
+// XDG autostart: $XDG_CONFIG_HOME/autostart, then each of $XDG_CONFIG_DIRS
+// (default /etc/xdg) + /autostart.
+std::vector<std::filesystem::path> autostart_dirs();
+// The entries to start when a session begins: meant for tetra and enabled.
+std::vector<DesktopEntry> autostart_entries(const std::vector<std::filesystem::path>& dirs);
+
+// Wayland sessions a greeter offers: each of $XDG_DATA_DIRS +
+// /wayland-sessions.
+std::vector<std::filesystem::path> session_dirs();
+// Sessions to offer (NoDisplay left out), sorted by name.
+std::vector<DesktopEntry> session_entries(const std::vector<std::filesystem::path>& dirs);
 
 // argv for launching `entry`: field codes removed, quoting resolved, and
 // wrapped in `terminal` (e.g. "tetra-terminal") if the entry runs in a terminal.

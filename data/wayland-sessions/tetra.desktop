@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=tetra
+Comment=A sleek, minimal desktop
+Exec=tetra
+TryExec=tetra
+DesktopNames=tetra

@@ -4,15 +4,17 @@ A sleek, minimal, lightweight desktop environment for Linux: a wlroots-based
 Wayland compositor with a Dear ImGui shell and core apps, unified in look,
 controls and configuration. See [docs/design.md](docs/design.md).
 
-Status: phase 2 — compositor with server-side decorations, layer-shell and
-Xwayland; ImGui toolkit; `tetra-shell` with the F-key task bar (12 slots in
-groups of four), app launcher, network/battery indicators and clock;
-desktop notifications (`notify-send` works); volume control in the tray and
-a volume/brightness OSD for the media keys; a lock screen (PAM) with idle
-locking, screen blanking and locking before sleep; a polkit agent (pkexec and
-friends ask for your password in a tetra dialog); screenshots (Print); app
-icons in the tray (StatusNotifierItem, with their menus); one JSON configuration with live
-reload ([docs/config.md](docs/config.md)). Phase 3 (shell services) done; phase 4 (Settings) in progress.
+Status: all six phases of the roadmap are done; none of it has been tried
+on a real seat yet. The compositor has server-side decorations, snap zones,
+window memory, animations and Xwayland; `tetra-shell` has the F-key task bar
+(12 slots in groups of four), the app launcher with a power menu,
+network/battery/volume indicators, app icons in the tray (StatusNotifierItem),
+notifications, a volume/brightness OSD, a lock screen (PAM) with idle locking
+and blanking, a polkit agent and screenshots. Apps: Settings, a terminal and
+a system monitor; an xdg-desktop-portal backend (file chooser, screenshots,
+colour picker, screen sharing, settings); a login screen for greetd. One JSON
+configuration with live reload ([docs/config.md](docs/config.md)).
+Pictures: [docs/screenshots](docs/screenshots/README.md).
 
 ## Building (Debian 13)
 
@@ -63,6 +65,13 @@ printf '[Desktop Entry]\nName=tetra (dev build)\nExec=%s\nType=Application\n' \
   "$PWD/build/debug/src/compositor/tetra" | sudo tee /usr/share/wayland-sessions/tetra-dev.desktop
 ```
 
+**Login screen** (greetd): `sudo cmake --install build/release`, then use
+`data/greetd/config.toml` as `/etc/greetd/config.toml`
+(`command = "tetra --greeter"`) and enable greetd instead of GDM
+(`sudo systemctl disable gdm && sudo systemctl enable greetd`). It offers
+the sessions in `/usr/share/wayland-sessions` (tetra's own is installed
+there).
+
 **Portal backend** (GTK/Qt/Firefox use tetra's file dialog, screenshots,
 colour picker, screen sharing and dark/light setting). `sudo cmake --install build/release` installs it
 with everything else. To use it from a dev build instead (the `.portal` file
@@ -100,6 +109,7 @@ switching from another desktop, `systemctl --user restart xdg-desktop-portal`.
 | Super+I | Settings |
 | Ctrl+Shift+Escape | System Monitor |
 | Super+L | lock the screen (also after `idle.lock_after`, before sleep, `loginctl lock-session`) |
+| Launcher > Power | lock, log out, suspend, restart, shut down |
 | Super+Shift+Escape | quit tetra |
 | Ctrl+Alt+F1…F12 | switch VT |
 | Volume / mute / mic-mute keys | change the volume (OSD); also the wheel over the tray speaker |
@@ -119,13 +129,15 @@ src/shell/        tetra-shell: bar, launcher, tray (incl. app icons), notificati
 src/apps/         apps: settings (tetra-settings), terminal (tetra-terminal), system monitor (tetra-monitor)
 src/portal/       tetra-portal: xdg-desktop-portal backend (settings, screenshots, file chooser,
                   screen sharing)
-data/             files installed alongside (PAM service, desktop entries)
-tests/unit/       unit tests (config editing)
+src/greeter/      tetra-greeter: the login screen for greetd
+data/             files installed alongside (PAM service, desktop entries, session entry, greetd
+                  config, portal files)
+tests/unit/       unit tests (config editing, monitor, portal, greeter, desktop files)
 protocols/        tetra's private Wayland protocol (compositor <-> shell)
 scripts/          deps, vendored build, headless runner, test runner
 tests/headless/   scripted headless scenarios
 tests/tools/      tetra-sendkeys, tetra-pointer, tetra-tray-item, polkit-request, fake-polkit-helper,
-                  portal-request, tetra-foreign-parent
+                  portal-request, tetra-foreign-parent, fake-greetd, fake-logind
 patches/          local patches to vendored dependencies
 third_party/      pinned submodules (wlroots, wayland, imgui, ...)
 docs/             design notes, configuration reference

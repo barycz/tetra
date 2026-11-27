@@ -280,11 +280,12 @@ Config parse(const json& root, Reader& reader) {
 
     if (auto it = root.find("theme"); it != root.end()) {
         const auto& theme = Reader::expect_object(*it, "theme");
-        reader.check_keys(theme, "theme.", {"dark", "accent", "font", "font_size"});
+        reader.check_keys(theme, "theme.", {"dark", "accent", "font", "font_size", "animations"});
         Reader::read(theme, "theme.", "dark", config.theme.dark);
         Reader::read(theme, "theme.", "accent", config.theme.accent);
         Reader::read(theme, "theme.", "font", config.theme.font);
         Reader::read(theme, "theme.", "font_size", config.theme.font_size);
+        Reader::read(theme, "theme.", "animations", config.theme.animations);
         if (config.theme.font_size < 6 || config.theme.font_size > 48) {
             throw ConfigError("'theme.font_size' must be between 6 and 48");
         }

@@ -116,6 +116,7 @@ compositor (tetra)  wlroots, window management, decorations, input, outputs
 shell               layer-shell client: task bar, launcher, tray, notifications, OSD, lock screen
 apps/               settings, terminal, system monitor
 portal              xdg-desktop-portal backend (settings, screenshot, file chooser, access, screencast)
+greeter             login screen for greetd (runs in `tetra --greeter`)
 libtoolkit          Wayland client platform + ImGui + theme + shared widgets + event loop
 libcore             config, D-Bus (sdbus-c++), logging, .desktop / MIME / icon lookup
 ```
@@ -175,7 +176,7 @@ tetra's file dialog. Xwayland is supported for legacy X11 apps.
 
 ## Scope
 
-**In:** compositor, shell (bar, launcher with search, notifications daemon,
+**In:** compositor, shell (bar, launcher with search and power menu, notifications daemon,
 volume/brightness OSD, lock screen via `ext-session-lock`, idle/blanking via
 `ext-idle-notify`, polkit agent, screenshot tool, clipboard), session (greetd
 greeter, XDG autostart, logind power actions), Settings (displays, input,
@@ -336,6 +337,89 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   - Hit tests for "click outside closes" use plain rectangles:
     `IsWindowHovered()` is false while an item in the window is active.
   - Never destroy a window from its own draw callback; defer it to a timer.
+  - A focus request (`SetKeyboardFocusHere`) is carried out in the next
+    frame, so a window keeps rendering (up to 3 frames) while one is
+    pending. Otherwise that frame only came with the next key, which then
+    arrived before its field was active: the first letter typed after a
+    click was lost, or went to the wrong field (phase 6).
+
+## Login screen (phase 6)
+
+- greetd runs `tetra --greeter` (`data/greetd/config.toml`; optionally
+  `-c /etc/tetra/greeter.json` for the theme, background and displays).
+  In greeter mode the compositor starts `tetra-greeter` instead of the
+  shell, without Xwayland, autostart or window memory, and exits with the
+  greeter's status. No key binding works there (nothing may start a
+  program as the greeter's user or reach a window behind it), except VT
+  switching.
+- `tetra-greeter` (`src/greeter/`) draws a full-screen layer surface per
+  display: clock and date, a card with an avatar (the initial on the
+  accent colour), the user list, the password field and "Log in"; the
+  session list at the bottom left, Suspend / Restart / Shut down at the
+  bottom right (logind's Can* answers decide which show, through
+  `ui::Power`, shared with the launcher).
+- Users: `/etc/passwd` accounts with a UID between login.defs' UID_MIN and
+  UID_MAX and a real shell, by GECOS name; "Other user..." takes a typed
+  name (LDAP, system accounts). Sessions: `wayland-sessions/*.desktop` in
+  `$XDG_DATA_DIRS`, tetra's own first by default (`data/wayland-sessions/tetra.desktop`).
+  The last user and session are remembered in the greeter user's
+  `~/.local/state/tetra/greeter.json` (if its home is writable).
+- greetd IPC (`protocol.cpp`, `greetd.cpp`): length-prefixed JSON on
+  `$GREETD_SOCK`, read in the App's loop, so the delay after a wrong
+  password never blocks drawing. Enter sends `create_session`; the first
+  secret prompt is answered with the password already typed; any further
+  prompt (a verification code) replaces the field's hint, with "Continue";
+  info and error messages are shown and acknowledged. On success:
+  `start_session` with the session's Exec as argv and
+  `XDG_SESSION_TYPE=wayland`, `XDG_SESSION_DESKTOP`, `XDG_CURRENT_DESKTOP`
+  (DesktopNames); then the greeter exits and greetd starts the session. A
+  failure cancels the session and says why ("Wrong password"). Password
+  buffers are wiped after use.
+- Tests: `run-headless.sh -g` runs the login screen against
+  `tests/tools/fake-greetd` (made-up accounts alice, bob, carol with a
+  second factor, dave with a PAM info message; its log records each
+  request) with a made-up passwd file (`TETRA_GREETER_PASSWD`) and two
+  sessions. A login ends the compositor, so those scenarios take their own
+  screenshot first.
+
+## Animations (phase 6)
+
+`theme.animations` (default on; Settings > Appearance > Motion; the portal
+also publishes it as `enable-animations` for GTK). `TETRA_SLOW_ANIMATIONS=N`
+makes everything N times slower, to look at them and for tests.
+
+- **Windows** (`src/compositor/animation.cpp`): a window that opens or
+  comes back from the bar fades in (buffers' opacity, borders through
+  `Decoration::set_opacity`) while rising 14 px into place, 180 ms,
+  easing out. One that closes or is minimised leaves a *ghost*: new scene
+  buffers sharing its last buffers (no copies), flattened into one tree so
+  the picture can be scaled. A closing ghost shrinks to 92 % and fades
+  (150 ms); a minimised one shrinks to 60 % and drops towards the bar
+  (220 ms), easing in. wlroots keeps only a texture of buffers nobody else
+  holds, so decorations keep their title bar buffer for this.
+- Outputs advance the animations before each frame and ask for the next
+  one while any runs; nothing else changes in the real window but its
+  opacity and position for a moment, so input and configures go on
+  meanwhile.
+- **Shell** (`ui::transition`, `Window::set_fade`, `ui::fade_since` in
+  `src/toolkit/motion.*`): the launcher rises 24 px from the bar while
+  fading in (180 ms), the OSD fades in (140 ms), a new notification card
+  slides in from the right (220 ms). Fading works on the frame's vertices
+  (alpha and position), so cards and icons drawn with explicit colours
+  fade too; a running transition keeps its window rendering.
+
+## Session (phase 6)
+
+- **Power menu**: the launcher's footer has a Power button with Lock, Log
+  out, Suspend, Restart and Shut down (logind, `interactive`, so polkit may
+  ask). Log out is `tetra_shell_v1.quit` (protocol version 6): the
+  compositor exits, which ends the session.
+- **XDG autostart**: at start the compositor runs config `autostart`, then
+  the entries of `$XDG_CONFIG_HOME/autostart` and `$XDG_CONFIG_DIRS/autostart`
+  (`/etc/xdg`): a user entry hides a system one with the same name (also
+  with `Hidden=true`); OnlyShowIn/NotShowIn are honoured for `tetra`,
+  `X-GNOME-Autostart-enabled=false` and a missing `TryExec` skip an entry.
+  Settings does not list them yet.
 
 ## Portal backend (phase 5)
 
@@ -598,17 +682,26 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
   `tests/tools/fake-polkit-helper`, which accepts the same test password.
   Screenshots go to a private `$XDG_PICTURES_DIR`, window memory to a
   private `$XDG_STATE_HOME`. Portal services activated on the private bus
-  get a private HOME and config/data dirs (see Portal backend). `tetra-pointer` gives
+  get a private HOME and config/data dirs (see Portal backend), and XDG
+  autostart sees empty directories. `tetra-pointer` gives
   absolute moves, clicks, drags (wlrctl cannot drag) and wheel notches;
   `tetra-sendkeys --hold` keeps keys (Shift) down meanwhile. wlroots releases a
   virtual pointer's buttons when it goes away, so `hold` keeps running.
   `tetra-tray-item` is a StatusNotifierItem with a dbusmenu (or
   libappindicator-style with `--appindicator`). It reports what it receives
   as notifications.
+- Scenario headers (`scripts/run-tests.sh`): `# wait: SECS`, `# outputs: N`,
+  `# audio: pipewire`, `# greeter: yes` (the login screen, see above),
+  `# logind: fake` (`tests/tools/fake-logind`: power actions only, logged)
+  and `# env: NAME=VALUE`. A scenario can take the result screenshot
+  itself at the right moment (`$XDG_RUNTIME_DIR/last.png`), which also
+  allows the session to end (a login, a log out: the compositor must exit
+  with status 0), and reports a failed check by writing to
+  `$XDG_RUNTIME_DIR/scenario-failed`.
 - The seat always advertises a keyboard, so clients hold a `wl_keyboard`
   before any (virtual or hot-plugged) keyboard appears.
-- **Real session:** from a spare TTY, or later through a `wayland-sessions`
-  entry in GDM. GDM stays until tetra has its own greetd greeter.
+- **Real session:** from a spare TTY, through the `wayland-sessions` entry
+  in GDM, or with greetd and tetra's own login screen.
 - Presets: `debug` (GCC, -Werror), `clang`, `asan` (ASan + UBSan), `release`.
 
 ## Roadmap
@@ -631,6 +724,8 @@ submodule in `.deps/src/`; the submodule checkout itself stays pristine.
    colour picking, file chooser, access and screen sharing, with dialogs
    attached to the app's window; not yet tried on a real seat)*
 6. **Final pieces** — greeter, animations, polish.
+   *(done: login screen for greetd, window and shell animations, power
+   menu and log out, XDG autostart; not yet tried on a real seat)*
 
 ## Open questions
 

@@ -46,6 +46,9 @@ public:
 
     // Render at least `frames` more frames (ImGui needs a couple to settle).
     void request_redraw(int frames = 2);
+    // For this frame (call from on_draw): draw everything with `alpha` and
+    // moved by (dx, dy) pixels. Panels fading in (motion.hpp).
+    void set_fade(float alpha, float dx = 0, float dy = 0) { fade_ = {alpha, dx, dy}; }
     void apply_theme();
 
     [[nodiscard]] wl_surface* surface() const noexcept { return surface_; }
@@ -88,6 +91,12 @@ private:
     int height_ = 0;
     int scale_ = 1;
     int frames_needed_ = 0;
+    int focus_frames_ = 0; // frames rendered for a pending focus request
+    struct {
+        float alpha = 1;
+        float dx = 0;
+        float dy = 0;
+    } fade_;
     bool configured_ = false;
     bool pointer_inside_ = false;
     std::chrono::steady_clock::time_point last_frame_;

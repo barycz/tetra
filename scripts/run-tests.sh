@@ -27,9 +27,15 @@ for test in "$root"/tests/headless/*.sh; do
     # with "# audio: pipewire".
     wait="$(sed -n 's/^# wait: *\([0-9.]*\)$/\1/p' "$test" | head -n 1)"
     outputs="$(sed -n 's/^# outputs: *\([0-9]*\)$/\1/p' "$test" | head -n 1)"
-    sound=()
-    grep -q '^# audio: pipewire$' "$test" && sound=(-a)
-    "$root/scripts/run-headless.sh" -p "$preset" -w "${wait:-6}" -n "${outputs:-1}" "${sound[@]}" -o "$out/$name.png" \
+    # "# greeter: yes" runs the login screen with a fake greetd, "# logind: fake"
+    # a fake logind.
+    extra=()
+    grep -q '^# audio: pipewire$' "$test" && extra+=(-a)
+    grep -q '^# greeter: yes$' "$test" && extra+=(-g)
+    grep -q '^# logind: fake$' "$test" && extra+=(-l)
+    # "# env: NAME=VALUE" lines go into the session's environment.
+    mapfile -t envs < <(sed -n 's/^# env: *\([A-Z_][A-Z0-9_]*=.*\)$/\1/p' "$test")
+    env "${envs[@]}" "$root/scripts/run-headless.sh" -p "$preset" -w "${wait:-6}" -n "${outputs:-1}" "${extra[@]}" -o "$out/$name.png" \
         -- "$test" >/dev/null 2>&1
     status=$?
     log="$out/$name.log"

@@ -45,6 +45,13 @@ public:
     void update();
     void set_hover(Part part);
     void set_visible(bool visible);
+    // Fades the borders (windows appearing); the title bar is a buffer whose
+    // opacity is set like the window's own.
+    void set_opacity(float opacity);
+    // The title bar's node and its current picture. wlroots keeps only a
+    // texture of buffers nobody else holds; animations need the buffer.
+    [[nodiscard]] wlr_scene_node* titlebar_node() const noexcept { return &titlebar_->node; }
+    [[nodiscard]] wlr_buffer* title_buffer() const noexcept { return title_buffer_; }
 
 private:
     void render_titlebar(int width, int height, float scale);
@@ -58,8 +65,10 @@ private:
     wlr_scene_rect* resize_margin_;
     std::array<wlr_scene_rect*, 4> borders_{}; // top, bottom, left, right
     wlr_scene_buffer* titlebar_;
+    wlr_buffer* title_buffer_ = nullptr; // locked
     Part hover_ = Part::None;
     bool visible_ = true;
+    float opacity_ = 1;
 };
 
 } // namespace tetra

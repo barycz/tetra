@@ -21,6 +21,7 @@
 
 namespace tetra {
 
+class Animator;
 class Keyboard;
 class Pointer;
 class LayerSurface;
@@ -32,6 +33,10 @@ class View;
 struct Options {
     std::optional<std::string> startup_command;
     std::optional<std::string> config_path; // overrides ~/.config/tetra/config.json
+    // Login screen for greetd: runs tetra-greeter instead of the shell, with
+    // no Xwayland, autostart or key bindings that start programs, and exits
+    // when the greeter does.
+    bool greeter = false;
 };
 
 // Owns the Wayland display, the wlroots objects and every compositor-side
@@ -50,8 +55,13 @@ public:
 
     // Opens the socket, starts the backend, the shell and autostart entries,
     // then runs the event loop until terminate().
-    std::expected<void, std::string> run();
+    // Returns the exit status (in greeter mode, the greeter's).
+    std::expected<int, std::string> run();
     void terminate();
+    [[nodiscard]] bool greeter_mode() const noexcept { return options_.greeter; }
+    [[nodiscard]] bool terminating() const noexcept { return terminating_; }
+    [[nodiscard]] Animator& animator() noexcept { return *animator_; }
+    [[nodiscard]] const std::vector<std::unique_ptr<Output>>& outputs() const noexcept { return outputs_; }
     pid_t spawn(const std::string& command);
 
     [[nodiscard]] const config::Config& config() const noexcept { return config_; }
@@ -180,6 +190,9 @@ private:
     // or src/<dir>/ in a build tree), else as given (found in PATH).
     [[nodiscard]] static std::string locate(const std::string& program, const std::string& build_dir);
     void start_shell();
+    void start_greeter();
+    // config.json's "autostart" commands, then XDG autostart entries.
+    void start_autostart();
     void reap_children();
 
     // events
@@ -242,6 +255,7 @@ private:
     Taskbar taskbar_{*this};
     std::unique_ptr<ShellProtocol> shell_protocol_;
     std::unique_ptr<SessionLock> session_lock_;
+    std::unique_ptr<Animator> animator_;
     wlr_idle_notifier_v1* idle_notifier_ = nullptr;
     struct IdleInhibitor {
         Listener destroy;
@@ -302,6 +316,8 @@ private:
     int stats_motions_sent_ = 0;
 
     pid_t shell_pid_ = -1;
+    pid_t greeter_pid_ = -1;
+    int exit_status_ = 0;
     std::chrono::steady_clock::time_point shell_started_;
     int shell_fast_exits_ = 0;
     wl_event_source* shell_timer_ = nullptr;

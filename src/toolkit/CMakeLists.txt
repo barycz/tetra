@@ -29,6 +29,8 @@ add_library(tetra_toolkit STATIC
     dbus.cpp
     icons.cpp
     keymap.cpp
+    motion.cpp
+    power.cpp
     style.cpp
     texture.cpp
     window.cpp

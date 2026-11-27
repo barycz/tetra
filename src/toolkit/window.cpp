@@ -2,6 +2,7 @@
 
 #include "app.hpp"
 #include "clipboard.hpp"
+#include "motion.hpp"
 #include "protocols.hpp"
 #include "style.hpp"
 
@@ -236,10 +237,24 @@ void Window::render() {
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui::NewFrame();
+    fade_ = {1, 0, 0};
     if (on_draw) {
         on_draw();
     }
     ImGui::Render();
+    if (fade_.alpha < 1 || fade_.dx != 0 || fade_.dy != 0) {
+        // The whole picture, child windows and popups included.
+        ImDrawData* data = ImGui::GetDrawData();
+        for (ImDrawList* list : data->CmdLists) {
+            fade_since(list, 0, fade_.alpha, {fade_.dx, fade_.dy});
+            for (ImDrawCmd& cmd : list->CmdBuffer) {
+                cmd.ClipRect.x += fade_.dx;
+                cmd.ClipRect.z += fade_.dx;
+                cmd.ClipRect.y += fade_.dy;
+                cmd.ClipRect.w += fade_.dy;
+            }
+        }
+    }
 
     // on_draw may have created or destroyed windows; draw into ours.
     make_current();
@@ -265,6 +280,20 @@ void Window::render() {
     // quick click is only seen at the next mouse move.
     if (!GImGui->InputEventsQueue.empty()) {
         request_redraw(1);
+    }
+    // A focus request (SetKeyboardFocusHere, a window's first focus) is
+    // carried out in the next frame. Render it now: otherwise that frame
+    // only comes with the next key, and the key arrives before its field
+    // is active (the first letter typed after a click was lost). A few
+    // frames at most, for requests that never succeed.
+    const ImGuiContext& g = *GImGui;
+    const bool focus_pending =
+        g.NavMoveSubmitted || g.NavMoveForwardToNextFrame || g.NavNextActivateId != 0 || g.NavInitRequest;
+    if (focus_pending && focus_frames_ < 3) {
+        ++focus_frames_;
+        request_redraw(1);
+    } else if (!focus_pending) {
+        focus_frames_ = 0;
     }
 
     if (pointer_inside_) {

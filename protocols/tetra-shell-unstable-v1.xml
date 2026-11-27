@@ -13,7 +13,7 @@
     Unstable: both sides are built from the same source tree.
   </description>
 
-  <interface name="tetra_shell_v1" version="5">
+  <interface name="tetra_shell_v1" version="6">
     <enum name="slot_state" bitfield="true">
       <entry name="focused" value="1" summary="a window in this slot has keyboard focus"/>
       <entry name="minimized" value="2" summary="every window in this slot is minimized"/>
@@ -122,6 +122,14 @@
         with nothing if there is no output to capture.
       </description>
       <arg name="mode" type="uint" enum="screenshot_mode"/>
+    </request>
+
+    <!-- version 6 -->
+
+    <request name="quit" since="6">
+      <description summary="end the session (log out)">
+        The compositor closes its clients and exits, which ends the session.
+      </description>
     </request>
   </interface>
 </protocol>

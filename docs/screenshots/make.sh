@@ -25,7 +25,13 @@ mkdir -p "$work"
 for name in "${scenes[@]}"; do
     scene="$here/scenes/$name.sh"
     wait="$(sed -n 's/^# wait: *\([0-9.]*\)$/\1/p' "$scene" | head -n 1)"
-    if "$root/scripts/run-headless.sh" -p "$preset" -w "${wait:-4}" -o "$work/$name.png" -- "$scene" >/dev/null; then
+    # The same headers as the tests (scripts/run-tests.sh).
+    extra=()
+    grep -q '^# greeter: yes$' "$scene" && extra+=(-g)
+    grep -q '^# logind: fake$' "$scene" && extra+=(-l)
+    mapfile -t envs < <(sed -n 's/^# env: *\([A-Z_][A-Z0-9_]*=.*\)$/\1/p' "$scene")
+    if env "${envs[@]}" "$root/scripts/run-headless.sh" -p "$preset" -w "${wait:-4}" "${extra[@]}" \
+        -o "$work/$name.png" -- "$scene" >/dev/null; then
         cp "$work/$name.png" "$here/$name.png"
         echo "ok    $name"
     else

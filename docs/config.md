@@ -50,7 +50,8 @@ the error is logged by each component.
     "dark": true,
     "accent": "#4c8dff",
     "font": "Inter",              // fontconfig family name
-    "font_size": 14               // pixels at scale 1
+    "font_size": 14,              // pixels at scale 1
+    "animations": true            // windows fade and move, panels slide
   },
 
   "desktop": { "background": "#1b1d22" },
@@ -139,6 +140,7 @@ Built-in layouts: `none`, `columns-2`, `columns-3`, `priority` (wide middle),
 | `theme.accent` | colour | `"#4c8dff"` | yes |
 | `theme.font` | string | `"Inter"` | yes |
 | `theme.font_size` | number, 6–48 | `14` | yes |
+| `theme.animations` | bool | `true` | yes |
 | `desktop.background` | colour | `"#1b1d22"` | yes |
 | `windows.titlebar_height` | integer, 16–96 | `32` | yes |
 | `windows.border_width` | integer, 0–16 | `1` | yes |

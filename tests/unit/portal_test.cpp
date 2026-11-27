@@ -127,6 +127,7 @@ void settings_values() {
           "dark");
     check(dark.font_name == "Inter 10.5", "14 px is 10.5 pt");
     check(dark.gnome_accent == "blue", "default accent is blue");
+    check(dark.animations, "animations on by default");
     theme.dark = false;
     theme.accent = *tetra::config::Color::parse("#e66100");
     theme.font_size = 16;

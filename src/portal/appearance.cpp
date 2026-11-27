@@ -60,6 +60,7 @@ Appearance appearance(const config::Theme& theme) {
     // Pixels at 96 dpi -> points, to the nearest half point.
     const double points = std::round(theme.font_size * 0.75 * 2) / 2;
     a.font_name = std::format("{} {}", theme.font, points);
+    a.animations = theme.animations;
     return a;
 }
 

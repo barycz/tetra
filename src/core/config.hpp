@@ -86,6 +86,7 @@ struct Theme {
     Color accent = *Color::parse("#4c8dff");
     std::string font = "Inter";
     double font_size = 14; // pixels at scale 1
+    bool animations = true; // windows fade and move, panels slide
     bool operator==(const Theme&) const = default;
 };
 

@@ -83,7 +83,7 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
     };
     osd_ = std::make_unique<Osd>(*this);
 
-    protocol_ = static_cast<tetra_shell_v1*>(app_.bind_global(&tetra_shell_v1_interface, 5));
+    protocol_ = static_cast<tetra_shell_v1*>(app_.bind_global(&tetra_shell_v1_interface, 6));
     if (protocol_ != nullptr) {
         tetra_shell_v1_add_listener(protocol_, &ShellListener::listener, this);
     } else {
@@ -145,6 +145,12 @@ Shell::Shell(ui::App& app) : app_(app), icons_(app) {
     }
     system_bus_ = ui::DBusConnection::system(app_);
     brightness_ = std::make_unique<Brightness>(system_bus_ ? &system_bus_->connection() : nullptr);
+    power_ = std::make_unique<ui::Power>(system_bus_ ? &system_bus_->connection() : nullptr);
+    power_->on_changed = [this] {
+        if (launcher_) {
+            launcher_->redraw();
+        }
+    };
     if (system_bus_) {
         logind_ = std::make_unique<Logind>(system_bus_->connection());
         logind_->on_lock = [this] { lock(); };
@@ -333,6 +339,15 @@ bool Shell::request_screenshot(uint32_t mode) {
     return true;
 }
 
+bool Shell::log_out() {
+    if (protocol_ == nullptr || tetra_shell_v1_get_version(protocol_) < TETRA_SHELL_V1_QUIT_SINCE_VERSION) {
+        return false;
+    }
+    tetra_shell_v1_quit(protocol_);
+    wl_display_flush(app_.display());
+    return true;
+}
+
 void Shell::launch_slot(std::size_t index) {
     if (protocol_ != nullptr) {
         tetra_shell_v1_launch_slot(protocol_, static_cast<uint32_t>(index));
@@ -352,6 +367,7 @@ void Shell::toggle_launcher() {
         return;
     }
     applications_.load(); // pick up newly installed apps
+    power_->refresh();
     launcher_ = std::make_unique<Launcher>(*this);
 }
 

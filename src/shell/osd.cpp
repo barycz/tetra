@@ -1,5 +1,6 @@
 #include "osd.hpp"
 
+#include "motion.hpp"
 #include "shell.hpp"
 #include "style.hpp"
 
@@ -48,6 +49,7 @@ void Osd::show(std::string icon, float level, bool dimmed) {
         options.margin.bottom = kAboveBar;
         window_ = std::make_shared<ui::LayerWindow>(shell_.app(), options);
         window_->on_draw = [this] { draw(); };
+        appeared_ = std::chrono::steady_clock::now();
     }
     window_->request_redraw();
 
@@ -69,6 +71,8 @@ void Osd::hide() {
 
 void Osd::draw() {
     const auto& p = shell_.app().palette();
+    const float shown = ui::transition(shell_.app(), *window_, appeared_, std::chrono::milliseconds(140));
+    window_->set_fade(shown, 0, std::round((1 - shown) * 10));
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize(viewport->Size);

@@ -1,5 +1,7 @@
 #include "output.hpp"
 
+#include "animation.hpp"
+
 #include "layer_surface.hpp"
 #include "log.hpp"
 #include "server.hpp"
@@ -293,10 +295,14 @@ void Output::render_frame() {
     if (scene_output == nullptr) {
         return;
     }
-    const bool drawn = wlr_scene_output_needs_frame(scene_output);
     const auto start = std::chrono::steady_clock::now();
+    const bool animating = server_.animator().tick(start);
+    const bool drawn = wlr_scene_output_needs_frame(scene_output);
     wlr_scene_output_commit(scene_output, nullptr);
     const auto end = std::chrono::steady_clock::now();
+    if (animating) {
+        wlr_output_schedule_frame(output_); // the next step
+    }
 
     // Diagnostics: the event loop (input included) waits while a frame
     // renders, so slow frames show up as input lag. Rate-limited.

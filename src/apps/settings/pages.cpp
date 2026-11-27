@@ -220,6 +220,13 @@ void Settings::page_appearance() {
     }
     end_card();
 
+    begin_card("Motion");
+    row("Animations", "Windows fade in and out, panels slide. Also tells GTK apps.");
+    if (toggle("##animations", c.theme.animations)) {
+        save([v = !c.theme.animations](config::Document& d) { return d.set({"theme", "animations"}, v); });
+    }
+    end_card();
+
     begin_card("Desktop");
     row("Background");
     for (const auto& swatch : kBackgrounds) {

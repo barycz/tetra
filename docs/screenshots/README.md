@@ -4,6 +4,13 @@ Taken in headless tetra sessions at 1280×720 by [make.sh](make.sh), one
 script per picture in [scenes/](scenes/). Run `docs/screenshots/make.sh`
 to take them again (`-p asan` or a scene name, e.g. `make.sh launcher`).
 
+## Login screen
+
+`tetra --greeter` for greetd: pick a user (or type one), the session and
+the password; suspend, restart and shut down at the bottom right.
+
+![Login screen](login-screen.png)
+
 ## Desktop
 
 The terminal and the system monitor snapped side by side (Super+Left,
@@ -16,6 +23,21 @@ Super+Right), apps pinned to F-key slots in the task bar.
 Super opens it; typing filters the installed apps, Enter starts one.
 
 ![Launcher](launcher.png)
+
+## Power menu
+
+At the bottom of the launcher: lock, log out, suspend, restart, shut down.
+
+![Power menu](power-menu.png)
+
+## Animations
+
+Caught halfway at a tenth of the speed (`TETRA_SLOW_ANIMATIONS=10`): the
+closing terminal on the left shrinks and fades, the new one in the middle
+fades in as it rises into place, the system monitor drops towards the bar
+as it is minimised. `theme.animations: false` turns them off.
+
+![Animations](animations.png)
 
 ## Snap zones
 

@@ -450,6 +450,7 @@ Portal::Settings Portal::settings() const {
         {"gtk-theme", sdbus::Variant(a.gtk_theme)},
         {"accent-color", sdbus::Variant(a.gnome_accent)},
         {"font-name", sdbus::Variant(a.font_name)},
+        {"enable-animations", sdbus::Variant(a.animations)},
     };
     return all;
 }
@@ -481,6 +482,9 @@ void Portal::config_changed() {
     }
     if (before.font_name != appearance_.font_name) {
         emit(kGnome, "font-name");
+    }
+    if (before.animations != appearance_.animations) {
+        emit(kGnome, "enable-animations");
     }
 }
 

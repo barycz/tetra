@@ -1,6 +1,7 @@
 #include "launcher.hpp"
 
 #include "bar.hpp"
+#include "motion.hpp"
 #include "shell.hpp"
 #include "style.hpp"
 
@@ -10,6 +11,8 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <optional>
+#include <string>
 
 namespace tetra::shell {
 
@@ -100,8 +103,95 @@ void Launcher::launch(const DesktopEntry& entry) {
     shell_.hide_launcher();
 }
 
+void Launcher::draw_power_menu(float right, float y) {
+    const auto& p = shell_.app().palette();
+    const float scale = ImGui::GetIO().DisplayFramebufferScale.x;
+    constexpr float kSmallIcon = 16;
+    auto icon = [&](const char* name, ImVec2 at) {
+        if (const ui::Icon* i = shell_.icons().get(name, static_cast<int>(kSmallIcon * scale))) {
+            const ImU32 tint = i->symbolic ? ui::to_imu32(p.text) : IM_COL32_WHITE;
+            ImGui::GetWindowDrawList()->AddImage(i->ref(), at, {at.x + kSmallIcon, at.y + kSmallIcon}, {0, 0},
+                                                 {1, 1}, tint);
+        }
+    };
+
+    // The button: an icon and "Power".
+    const char* label = "Power";
+    const float pad = ImGui::GetStyle().FramePadding.x;
+    const float button_w = kSmallIcon + 8 + ImGui::CalcTextSize(label).x + (2 * pad);
+    ImGui::SetCursorPos({right - button_w, y});
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    if (ImGui::InvisibleButton("##power", {button_w, ImGui::GetFrameHeight()})) {
+        ImGui::OpenPopup("##powermenu");
+    }
+    const bool open = ImGui::IsPopupOpen("##powermenu");
+    if (ImGui::IsItemHovered() || open) {
+        ImGui::GetWindowDrawList()->AddRectFilled(at, {at.x + button_w, at.y + ImGui::GetFrameHeight()},
+                                                  ui::to_imu32(p.hover), 6);
+    }
+    const float mid = at.y + (ImGui::GetFrameHeight() / 2);
+    icon("system-shutdown-symbolic", {at.x + pad, std::round(mid - (kSmallIcon / 2))});
+    ImGui::GetWindowDrawList()->AddText({at.x + pad + kSmallIcon + 8, std::round(mid - (ImGui::GetFontSize() / 2))},
+                                        ui::to_imu32(p.text), label);
+
+    struct Item {
+        const char* icon;
+        const char* label;
+        std::optional<ui::Power::Action> action; // none: lock or log out
+        bool log_out = false;
+    };
+    using Action = ui::Power::Action;
+    const std::array<Item, 5> items{{
+        {"system-lock-screen-symbolic", "Lock", std::nullopt, false},
+        {"system-log-out-symbolic", "Log out", std::nullopt, true},
+        {"weather-clear-night-symbolic", "Suspend", Action::Suspend, false},
+        {"system-reboot-symbolic", "Restart", Action::Reboot, false},
+        {"system-shutdown-symbolic", "Shut down", Action::PowerOff, false},
+    }};
+    int shown = 0;
+    for (const Item& item : items) {
+        shown += !item.action || shell_.power().can(*item.action) ? 1 : 0;
+    }
+    // Above the button, its right edge on the button's.
+    const float row = ImGui::GetFrameHeight() + 4;
+    const float menu_w = 180;
+    const float menu_h = (static_cast<float>(shown) * row) + (2 * 6);
+    ImGui::SetNextWindowPos({at.x + button_w - menu_w, at.y - menu_h - 6});
+    ImGui::SetNextWindowSize({menu_w, menu_h});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {6, 6});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, 4});
+    ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, {0, 0.5F});
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ui::to_imvec4(p.window));
+    if (ImGui::BeginPopup("##powermenu")) {
+        for (const Item& item : items) {
+            if (item.action && !shell_.power().can(*item.action)) {
+                continue;
+            }
+            const ImVec2 start = ImGui::GetCursorScreenPos();
+            const std::string text = std::string("         ") + item.label;
+            if (ImGui::Selectable(text.c_str(), false, ImGuiSelectableFlags_None, {0, ImGui::GetFrameHeight()})) {
+                if (item.action) {
+                    shell_.power().request(*item.action);
+                } else if (item.log_out) {
+                    shell_.log_out();
+                } else {
+                    shell_.lock();
+                }
+                shell_.hide_launcher();
+            }
+            icon(item.icon, {start.x + 8, std::round(start.y + ((ImGui::GetFrameHeight() - kSmallIcon) / 2))});
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(3);
+}
+
 void Launcher::draw() {
     const auto& p = shell_.app().palette();
+    // Rises from the bar while fading in.
+    const float shown = ui::transition(shell_.app(), *window_, opened_, std::chrono::milliseconds(180));
+    window_->set_fade(shown, 0, std::round((1 - shown) * 24));
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     const float width = std::min(kPanelWidth, viewport->Size.x - 24);
     const float height = std::min(kPanelHeight, viewport->Size.y - Bar::kHeight - 36);
@@ -157,7 +247,8 @@ void Launcher::draw() {
     }
 
     ImGui::Dummy({0, 6});
-    ImGui::BeginChild("##apps", {0, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+    const float footer = ImGui::GetFrameHeight() + 14;
+    ImGui::BeginChild("##apps", {0, -footer}, ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float cell_width = std::floor(ImGui::GetContentRegionAvail().x / kColumns);
     const float scale = ImGui::GetIO().DisplayFramebufferScale.x;
@@ -201,6 +292,14 @@ void Launcher::draw() {
         ImGui::TextDisabled("No apps match \"%s\"", query_.c_str());
     }
     ImGui::EndChild();
+
+    // Footer: a line, then the power button at the right.
+    {
+        const ImVec2 line = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddLine({line.x, line.y + 6}, {line.x + ImGui::GetContentRegionAvail().x, line.y + 6},
+                                            ui::to_imu32(p.separator));
+        draw_power_menu(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x, ImGui::GetCursorPosY() + 13);
+    }
 
     ImGui::End();
     ImGui::PopStyleColor();
