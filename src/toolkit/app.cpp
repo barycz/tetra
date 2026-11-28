@@ -792,8 +792,19 @@ int App::run() {
             return 1;
         }
         for (std::size_t i = 1; i < watched_end; ++i) {
-            if ((pollfds[i].revents & POLLIN) != 0) {
-                const int fd = pollfds[i].fd;
+            const short revents = pollfds[i].revents;
+            const int fd = pollfds[i].fd;
+            if ((revents & POLLNVAL) != 0) {
+                // Closed without unwatch_fd(): polling it again would spin.
+                std::println(stderr, "{}: fd {} was closed while watched", app_id_, fd);
+                unwatch_fd(fd);
+                continue;
+            }
+            // A hang-up or error may come without POLLIN (a terminal whose
+            // last process is gone, a pipe whose writer closed); the callback's
+            // read() then reports it (EIO, EOF). Waiting for POLLIN alone
+            // would make poll() return at once, forever.
+            if ((revents & (POLLIN | POLLHUP | POLLERR)) != 0) {
                 auto it = std::ranges::find_if(fds_, [&](const WatchedFd& w) { return w.fd == fd; });
                 if (it != fds_.end()) {
                     auto callback = it->callback; // may unwatch itself

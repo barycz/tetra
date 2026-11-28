@@ -77,6 +77,8 @@ public:
     using TimerId = uint64_t;
     TimerId add_timer(std::chrono::milliseconds delay, std::function<void()> callback);
     void cancel_timer(TimerId id);
+    // `on_readable` also runs on a hang-up or error, so it must handle
+    // read() returning 0 (EOF) or failing (e.g. EIO), usually by unwatching.
     void watch_fd(int fd, std::function<void()> on_readable);
     void unwatch_fd(int fd);
 
