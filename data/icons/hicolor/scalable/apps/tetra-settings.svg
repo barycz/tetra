@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- tetra Settings: three sliders whose knobs are the mark's triangles,
+       in the accent's three shades (lighter, accent, darker). -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#343944"/>
+      <stop offset="1" stop-color="#282c35"/>
+    </linearGradient>
+  </defs>
+  <rect x="4.5" y="4.5" width="55" height="55" rx="13.5" fill="url(#tile)" stroke="#4a505e"/>
+  <g stroke-width="3" stroke-linecap="round">
+    <line x1="14" y1="20" x2="50" y2="20" stroke="#5a6170"/>
+    <line x1="14" y1="32" x2="50" y2="32" stroke="#5a6170"/>
+    <line x1="14" y1="44" x2="50" y2="44" stroke="#5a6170"/>
+    <line x1="14" y1="20" x2="40" y2="20" stroke="#70a4ff" stroke-opacity="0.45"/>
+    <line x1="14" y1="32" x2="24" y2="32" stroke="#4c8dff" stroke-opacity="0.45"/>
+    <line x1="14" y1="44" x2="34" y2="44" stroke="#3665b8" stroke-opacity="0.6"/>
+  </g>
+  <polygon points="34,25 46,25 40,14" fill="#70a4ff"/>
+  <polygon points="18,37 30,37 24,26" fill="#4c8dff"/>
+  <polygon points="28,49 40,49 34,38" fill="#3665b8"/>
+</svg>

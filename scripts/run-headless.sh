@@ -115,6 +115,11 @@ export TETRA_POLKIT_HELPER="$root/tests/tools/fake-polkit-helper"
 # Screenshots land here, not in the developer's ~/Pictures.
 export XDG_PICTURES_DIR="$runtime/Pictures"
 export XDG_STATE_HOME="$runtime/state" # window memory (windows.json)
+# A dev build's own desktop entries and icons (data/applications, data/icons)
+# ahead of the system's (an installed tetra's included).
+if ((!installed)); then
+    export XDG_DATA_DIRS="$root/data:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+fi
 # XDG autostart: none of the developer's or the system's entries.
 mkdir -p "$runtime/config" "$runtime/xdg"
 export XDG_CONFIG_HOME="$runtime/config" XDG_CONFIG_DIRS="$runtime/xdg"

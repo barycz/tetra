@@ -155,8 +155,8 @@ src/apps/         apps: settings (tetra-settings), terminal (tetra-terminal), sy
 src/portal/       tetra-portal: xdg-desktop-portal backend (settings, screenshots, file chooser,
                   screen sharing)
 src/greeter/      tetra-greeter: the login screen for greetd
-data/             files installed alongside (PAM service, desktop entries, session entry, greetd
-                  config, portal files)
+data/             files installed alongside (PAM service, desktop entries, app icons, session entry,
+                  greetd config, portal files)
 tests/unit/       unit tests (config editing, monitor, portal, greeter, desktop files)
 protocols/        tetra's private Wayland protocol (compositor <-> shell)
 scripts/          deps, missing-library build, headless runner, test runner, .deb build

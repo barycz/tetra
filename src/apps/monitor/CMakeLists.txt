@@ -12,5 +12,7 @@ add_executable(tetra-monitor
 target_link_libraries(tetra-monitor PRIVATE tetra_monitor_data tetra_toolkit tetra_warnings)
 
 install(TARGETS tetra-monitor)
+install(FILES "${CMAKE_SOURCE_DIR}/data/icons/hicolor/scalable/apps/tetra-monitor.svg"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
 install(FILES "${CMAKE_SOURCE_DIR}/data/applications/tetra-monitor.desktop"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")

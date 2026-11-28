@@ -29,6 +29,16 @@ Windows-like rather than macOS-like:
 - **Server-side decorations.** The compositor draws title bars for every window
   so they match. (GTK4/libadwaita apps will keep drawing their own.)
 - Minimal, dark-first theme; a single accent colour.
+- **App icons** (`data/icons/hicolor/scalable/apps`, installed into the
+  hicolor theme as `tetra-settings`, `tetra-terminal`, `tetra-monitor`): a
+  dark slate tile with a symbol built from the mark's triangles in the
+  accent's three shades (lighter, accent, darker), like the launcher's mark
+  and the desktop logo. Settings: sliders with triangle knobs; Terminal: a
+  chevron of two triangles and a cursor; System Monitor: triangle peaks on
+  a baseline. They are files, so they keep the default accent (#4c8dff)
+  whatever `theme.accent` is; other desktops show them too. Dev runs
+  (`scripts/run-headless.sh`) put `data/` first in `XDG_DATA_DIRS`, so the
+  checkout's entries and icons are used rather than an installed tetra's.
 
 ### Task bar: F-key slots
 

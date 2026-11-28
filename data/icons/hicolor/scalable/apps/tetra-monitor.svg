@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- tetra System Monitor: a load graph of the mark's triangles as peaks,
+       the tallest in front, on a baseline. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#343944"/>
+      <stop offset="1" stop-color="#282c35"/>
+    </linearGradient>
+  </defs>
+  <rect x="4.5" y="4.5" width="55" height="55" rx="13.5" fill="url(#tile)" stroke="#4a505e"/>
+  <polygon points="12,46 22,30 32,46" fill="#4c8dff"/>
+  <polygon points="36,46 44,34 52,46" fill="#3665b8"/>
+  <polygon points="22,46 33,16 44,46" fill="#70a4ff"/>
+  <line x1="11" y1="47" x2="53" y2="47" stroke="#d8dde6" stroke-width="2.5" stroke-linecap="round"/>
+</svg>

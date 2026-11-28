@@ -12,5 +12,7 @@ target_compile_definitions(tetra-settings PRIVATE TETRA_VERSION="${PROJECT_VERSI
 target_link_libraries(tetra-settings PRIVATE tetra_audio tetra_file_dialog tetra_toolkit tetra_warnings)
 
 install(TARGETS tetra-settings)
+install(FILES "${CMAKE_SOURCE_DIR}/data/icons/hicolor/scalable/apps/tetra-settings.svg"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
 install(FILES "${CMAKE_SOURCE_DIR}/data/applications/tetra-settings.desktop"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
